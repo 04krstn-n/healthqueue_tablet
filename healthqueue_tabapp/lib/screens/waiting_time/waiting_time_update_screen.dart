@@ -58,8 +58,8 @@ class _WaitingTimeUpdateScreenState extends State<WaitingTimeUpdateScreen> {
         StaffApiService.getQueueMetrics(clinicId),
       ]);
 
-      final clinic = results[0] as Map<String, dynamic>;
-      final metrics = results[1] as Map<String, dynamic>;
+      final clinic = results[0];
+      final metrics = results[1];
 
       final services =
           (clinic['services'] as List? ?? []).cast<Map<String, dynamic>>();
@@ -404,7 +404,7 @@ class _WaitingTimeUpdateScreenState extends State<WaitingTimeUpdateScreen> {
                                           boxShadow: [
                                             BoxShadow(
                                               color: Colors.black
-                                                  .withOpacity(0.04),
+                                                  .withValues(alpha: 0.04),
                                               blurRadius: 4,
                                             ),
                                           ],
@@ -448,7 +448,7 @@ class _WaitingTimeUpdateScreenState extends State<WaitingTimeUpdateScreen> {
                                       borderRadius: BorderRadius.circular(16),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: Colors.black.withOpacity(0.05),
+                                          color: Colors.black.withValues(alpha: 0.05),
                                           blurRadius: 8,
                                         ),
                                       ],
@@ -667,7 +667,7 @@ class _WaitingTimeUpdateScreenState extends State<WaitingTimeUpdateScreen> {
                                       ),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: Colors.black.withOpacity(0.04),
+                                          color: Colors.black.withValues(alpha: 0.04),
                                           blurRadius: 6,
                                         ),
                                       ],
@@ -963,10 +963,10 @@ class _WaitingTimeUpdateScreenState extends State<WaitingTimeUpdateScreen> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: c.withOpacity(0.05),
+        color: c.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: c.withOpacity(0.25),
+          color: c.withValues(alpha: 0.25),
         ),
       ),
       child: Row(

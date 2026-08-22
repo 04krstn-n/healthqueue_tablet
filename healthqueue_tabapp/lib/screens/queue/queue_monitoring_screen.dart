@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/queue_provider.dart';
-import '../../models/queue_model.dart';
 import '../../widgets/sidebar/staff_sidebar.dart';
 
 /// Queue Monitoring — read-only live view of today's queue.
@@ -105,14 +104,14 @@ class _QueueMonitoringScreenState extends State<QueueMonitoringScreen> {
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(12),
                           border: q.status == 'serving'
-                              ? Border.all(color: const Color(0xFF7C3AED).withOpacity(0.4), width: 1.5)
+                              ? Border.all(color: const Color(0xFF7C3AED).withValues(alpha: 0.4), width: 1.5)
                               : null,
-                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6)],
+                          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 6)],
                         ),
                         child: Row(children: [
                           Container(width: 52, height: 52,
                             decoration: BoxDecoration(
-                              color: _statusColor(q.status).withOpacity(0.1),
+                              color: _statusColor(q.status).withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(12)),
                             child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                               Text(q.queueNumber,
@@ -138,7 +137,7 @@ class _QueueMonitoringScreenState extends State<QueueMonitoringScreen> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                             decoration: BoxDecoration(
-                              color: _statusColor(q.status).withOpacity(0.1),
+                              color: _statusColor(q.status).withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(99)),
                             child: Text(
                               q.status == 'waiting' ? 'Waiting' : 'Serving',
@@ -157,7 +156,7 @@ class _QueueMonitoringScreenState extends State<QueueMonitoringScreen> {
   Widget _summaryChip(String label, int count, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-      decoration: BoxDecoration(color: color.withOpacity(0.08), borderRadius: BorderRadius.circular(99)),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(99)),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         Text('$count', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: color)),
         const SizedBox(width: 5),

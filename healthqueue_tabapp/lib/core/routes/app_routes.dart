@@ -7,6 +7,7 @@ import '../../screens/queue/queue_status_update_screen.dart';
 import '../../screens/queue/queue_monitoring_screen.dart';
 import '../../screens/assistance/patient_assistance_screen.dart';
 import '../../screens/schedule/service_schedule_screen.dart';
+import '../../screens/appointments/appointment_management_screen.dart';
 import '../../screens/inquiry/patient_inquiry_screen.dart';
 import '../../screens/waiting_time/waiting_time_update_screen.dart';
 import '../../screens/dashboard/reports_analytics_screen.dart';
@@ -23,6 +24,7 @@ class AppRoutes {
   static const String patientAssistance = '/patient-assistance';
 
   static const String serviceSchedule = '/service-schedule';
+  static const String appointmentManagement = '/appointment-management';
 
   static const String patientInquiryManagement = '/patient-inquiry-management';
 
@@ -38,6 +40,7 @@ class AppRoutes {
         queueMonitoring: (context) => const QueueMonitoringScreen(),
         patientAssistance: (context) => const PatientAssistanceScreen(),
         serviceSchedule: (context) => const ServiceScheduleScreen(),
+        appointmentManagement: (context) => const AppointmentManagementScreen(),
         patientInquiryManagement: (context) => const PatientInquiryScreen(),
         waitingTimeUpdate: (context) => const WaitingTimeUpdateScreen(),
         reportsAnalytics: (context) => const ReportsAnalyticsScreen(),

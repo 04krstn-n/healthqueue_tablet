@@ -14,8 +14,9 @@ class QueueProvider extends ChangeNotifier {
   bool             get isLoading => _loading;
   String?          get error     => _error;
 
-  // Server status enums: waiting | serving | done | completed | no_show | skipped | cancelled
+  // Server status enums: waiting | called | serving | done | completed | no_show | skipped | cancelled
   List<QueueModel> get waiting   => _entries.where((e) => e.status == 'waiting').toList();
+  List<QueueModel> get called    => _entries.where((e) => e.status == 'called').toList();
   List<QueueModel> get serving   => _entries.where((e) => e.status == 'serving').toList();
   List<QueueModel> get completed => _entries.where((e) => ['done','completed'].contains(e.status)).toList();
   List<QueueModel> get priority  => _entries.where((e) => e.isPriority).toList();
@@ -58,12 +59,22 @@ class QueueProvider extends ChangeNotifier {
     }
   }
 
-  // Optimistic status update + server call
+  // Optimistic status update + server call.
+  // NOTE: 'called' and 'serving' are two distinct server states — "Call"
+  // moves waiting -> called (starts the 5-min grace period), then "Start"
+  // moves called -> serving. Previously the "Call" button requested
+  // 'serving' directly (which the server ignored, setting 'called'
+  // instead) with no follow-up action wired up, so called/skipped/no_show
+  // entries were stuck with no button that could move them forward. This
+  // now matches each target status to the correct endpoint, including
+  // 'waiting' which requeues a called/skipped/no_show entry.
   Future<void> updateStatus(String entryId, String status) async {
     _optimisticUpdate(entryId, status);
     try {
       switch (status) {
-        case 'serving':   await StaffApiService.callPatient(entryId);     break;
+        case 'waiting':   await StaffApiService.requeueEntry(entryId);    break;
+        case 'called':    await StaffApiService.callPatient(entryId);     break;
+        case 'serving':   await StaffApiService.startService(entryId);    break;
         case 'done':
         case 'completed': await StaffApiService.completePatient(entryId); break;
         case 'skipped':   await StaffApiService.skipPatient(entryId);     break;
@@ -98,7 +109,9 @@ class QueueProvider extends ChangeNotifier {
   Future<void> addPatient({
     required String patientName,
     required String serviceName,
-    String patientPhone = '',
+    // Required (not optional) so the patient can receive queue/turn
+    // notifications — server also rejects walk-ins without a phone number.
+    required String patientPhone,
     String patientType  = 'Regular',
     String notes        = '',
   }) async {
@@ -108,7 +121,7 @@ class QueueProvider extends ChangeNotifier {
         clinicId: _clinicId!,
         patientName: patientName,
         serviceName: serviceName,
-        patientPhone: patientPhone.isEmpty ? null : patientPhone,
+        patientPhone: patientPhone,
         patientType:  patientType,
         notes:        notes.isEmpty ? null : notes,
       );

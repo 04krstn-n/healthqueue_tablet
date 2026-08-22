@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../core/routes/app_routes.dart';
+import '../../core/theme/app_colors.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -175,7 +176,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               boxShadow: [
                                 BoxShadow(
                                   color:
-                                      const Color(0xFF2563EB).withOpacity(0.3),
+                                      const Color(0xFF2563EB).withValues(alpha: 0.3),
                                   blurRadius: 16,
                                   offset: const Offset(0, 6),
                                 ),
@@ -269,10 +270,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                 vertical: 12,
                               ),
                               decoration: BoxDecoration(
-                                color: Colors.red.withOpacity(0.07),
+                                color: Colors.red.withValues(alpha: 0.07),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
-                                  color: Colors.red.withOpacity(0.2),
+                                  color: Colors.red.withValues(alpha: 0.2),
                                 ),
                               ),
                               child: Row(
@@ -395,7 +396,7 @@ class _LoginScreenState extends State<LoginScreen> {
         height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: Colors.white.withOpacity(0.08),
+          color: Colors.white.withValues(alpha: 0.08),
         ),
       ),
     );
@@ -430,10 +431,10 @@ class _LoginScreenState extends State<LoginScreen> {
         vertical: 10,
       ),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.15),
+        color: Colors.white.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: Colors.white.withOpacity(0.2),
+          color: Colors.white.withValues(alpha: 0.2),
         ),
       ),
       child: Row(
@@ -475,6 +476,12 @@ class _LoginScreenState extends State<LoginScreen> {
   }) {
     return InputDecoration(
       hintText: hint,
+      hintStyle: TextStyle(
+        color: AppColors.textMuted,
+        fontSize: 14,
+        fontWeight: FontWeight.w400,
+        letterSpacing: hint.contains('•') ? 2 : 0,
+      ),
       prefixIcon: Icon(
         icon,
         color: const Color(0xFF9CA3AF),

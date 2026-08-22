@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
-import '../../providers/schedule_provider.dart';
-import '../../models/schedule_model.dart';
+import '../../services/api_service.dart';
 import '../../widgets/sidebar/staff_sidebar.dart';
 
+/// Service Schedule (viewing) — shows the services configured for this
+/// clinic by the Facility Admin (name, duration, availability). This is
+/// distinct from Appointment Management (booked patient appointments),
+/// which used to occupy this same route/sidebar entry and has now been
+/// moved to its own module — see appointment_management_screen.dart.
 class ServiceScheduleScreen extends StatefulWidget {
   const ServiceScheduleScreen({super.key});
   @override
@@ -12,58 +16,40 @@ class ServiceScheduleScreen extends StatefulWidget {
 }
 
 class _ServiceScheduleScreenState extends State<ServiceScheduleScreen> {
-  String _filter = 'All';
-  final _statuses = [
-    'All',
-    'pending',
-    'confirmed',
-    'arrived',
-    'serving',
-    'completed',
-    'cancelled'
-  ];
+  bool _loading = true;
+  String? _error;
+  String _clinicName = '';
+  List<Map<String, dynamic>> _services = [];
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final clinicId = context.read<AuthProvider>().staff?.clinicId;
-      if (clinicId != null)
-        context.read<ScheduleProvider>().setClinicId(clinicId);
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
-  Color _statusColor(String s) {
-    switch (s.toLowerCase()) {
-      case 'confirmed':
-        return const Color(0xFF16A34A);
-      case 'pending':
-        return const Color(0xFFD97706);
-      case 'arrived':
-        return const Color(0xFF2563EB);
-      case 'serving':
-        return const Color(0xFF7C3AED);
-      case 'completed':
-        return const Color(0xFF6B7280);
-      case 'cancelled':
-        return const Color(0xFFDC2626);
-      case 'no_show':
-        return const Color(0xFFEF4444);
-      default:
-        return const Color(0xFF6B7280);
+  Future<void> _load() async {
+    final clinicId = context.read<AuthProvider>().staff?.clinicId;
+    if (clinicId == null) {
+      setState(() { _loading = false; _error = 'No clinic assigned to this account.'; });
+      return;
+    }
+    setState(() { _loading = true; _error = null; });
+    try {
+      final res = await StaffApiService.getClinicServices(clinicId);
+      setState(() {
+        _services = res.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+        _loading = false;
+      });
+    } on StaffApiException catch (e) {
+      setState(() { _error = e.message; _loading = false; });
+    } catch (_) {
+      setState(() { _error = 'Failed to load service schedule.'; _loading = false; });
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-    final provider = context.watch<ScheduleProvider>();
-    final all = provider.schedule;
-    final shown = _filter == 'All'
-        ? all
-        : all
-            .where((s) => s.status.toLowerCase() == _filter.toLowerCase())
-            .toList();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -84,73 +70,41 @@ class _ServiceScheduleScreenState extends State<ServiceScheduleScreen> {
                     height: 42,
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
-                        colors: [
-                          Color(0xFF2563EB),
-                          Color(0xFF1D4ED8),
-                        ],
+                        colors: [Color(0xFF059669), Color(0xFF047857)],
                       ),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(
-                      Icons.calendar_today_outlined,
-                      color: Colors.white,
-                      size: 22,
-                    ),
+                    child: const Icon(Icons.schedule_rounded, color: Colors.white, size: 22),
                   ),
-
                   const SizedBox(width: 14),
-
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        const Text('Service Schedule',
+                            style: TextStyle(
+                                fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xFF111827))),
                         Text(
-                          "Today's Schedule",
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF111827),
-                          ),
-                        ),
-                        Text(
-                          "Appointments for today",
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Color(0xFF6B7280),
-                          ),
+                          _clinicName.isNotEmpty ? _clinicName : 'Services offered by this clinic',
+                          style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
                         ),
                       ],
                     ),
                   ),
-
-                  // Total badge
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFEFF6FF),
+                      color: const Color(0xFFECFDF5),
                       borderRadius: BorderRadius.circular(99),
                     ),
-                    child: Text(
-                      '${all.length} total',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF2563EB),
-                      ),
-                    ),
+                    child: Text('${_services.length} services',
+                        style: const TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF059669))),
                   ),
-
                   const SizedBox(width: 10),
-
                   IconButton(
-                    onPressed: provider.loadSchedule,
-                    icon: const Icon(
-                      Icons.refresh_rounded,
-                      color: Color(0xFF6B7280),
-                    ),
+                    onPressed: _load,
+                    icon: const Icon(Icons.refresh_rounded, color: Color(0xFF6B7280)),
                     tooltip: 'Refresh',
                   ),
                 ],
@@ -159,20 +113,17 @@ class _ServiceScheduleScreenState extends State<ServiceScheduleScreen> {
 
             // Content
             Expanded(
-              child: provider.isLoading
-                  ? const Center(
-                      child:
-                          CircularProgressIndicator(color: Color(0xFF2563EB)))
-                  : provider.error != null
-                      ? _errorState(provider.error!)
-                      : shown.isEmpty
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator(color: Color(0xFF059669)))
+                  : _error != null
+                      ? _errorState(_error!)
+                      : _services.isEmpty
                           ? _emptyState()
                           : ListView.separated(
                               padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-                              itemCount: shown.length,
-                              separatorBuilder: (_, __) =>
-                                  const SizedBox(height: 8),
-                              itemBuilder: (ctx, i) => _apptCard(shown[i]),
+                              itemCount: _services.length,
+                              separatorBuilder: (_, __) => const SizedBox(height: 8),
+                              itemBuilder: (_, i) => _serviceCard(_services[i]),
                             ),
             ),
           ]),
@@ -181,85 +132,63 @@ class _ServiceScheduleScreenState extends State<ServiceScheduleScreen> {
     );
   }
 
-  Widget _apptCard(ScheduleModel s) {
+  Widget _serviceCard(Map<String, dynamic> s) {
+    final name = s['name']?.toString() ?? 'Unnamed service';
+    final desc = s['description']?.toString() ?? '';
+    final duration = (s['durationMinutes'] ?? 30) as int;
+    final available = s['isAvailable'] != false;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6)
-        ],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 6)],
       ),
       child: Row(children: [
-        // Time
         Container(
-          width: 70,
-          height: 56,
+          width: 46,
+          height: 46,
           decoration: BoxDecoration(
-              color: const Color(0xFFEFF6FF),
-              borderRadius: BorderRadius.circular(10)),
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Text(s.time,
-                style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF2563EB))),
-          ]),
+            color: const Color(0xFFECFDF5),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(Icons.medical_services_outlined, color: Color(0xFF059669), size: 22),
         ),
         const SizedBox(width: 14),
         Expanded(
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(s.patientName,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(name,
                 style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF111827))),
-            const SizedBox(height: 3),
-            Text(s.service,
-                style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
-            if (s.patientPhone.isNotEmpty)
-              Text(s.patientPhone,
-                  style:
-                      const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
+                    fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF111827))),
+            if (desc.isNotEmpty) ...[
+              const SizedBox(height: 3),
+              Text(desc, style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+            ],
+            const SizedBox(height: 6),
+            Row(children: [
+              const Icon(Icons.timer_outlined, size: 13, color: Color(0xFF9CA3AF)),
+              const SizedBox(width: 4),
+              Text('~$duration min per patient',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
+            ]),
           ]),
         ),
-        // Status badge
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
-            color: _statusColor(s.status).withOpacity(0.1),
+            color: (available ? const Color(0xFF16A34A) : const Color(0xFF9CA3AF)).withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(99),
-            border: Border.all(color: _statusColor(s.status).withOpacity(0.3)),
+            border: Border.all(
+                color: (available ? const Color(0xFF16A34A) : const Color(0xFF9CA3AF)).withValues(alpha: 0.3)),
           ),
           child: Text(
-            s.status[0].toUpperCase() + s.status.substring(1),
+            available ? 'Available' : 'Unavailable',
             style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
-                color: _statusColor(s.status)),
+                color: available ? const Color(0xFF16A34A) : const Color(0xFF9CA3AF)),
           ),
-        ),
-        const SizedBox(width: 8),
-        // Action menu
-        PopupMenuButton<String>(
-          onSelected: (val) => context
-              .read<ScheduleProvider>()
-              .updateAppointmentStatus(s.id, val),
-          itemBuilder: (_) => [
-            'confirmed',
-            'arrived',
-            'serving',
-            'completed',
-            'cancelled',
-            'no_show',
-          ]
-              .map((st) => PopupMenuItem(
-                  value: st,
-                  child: Text(st[0].toUpperCase() + st.substring(1))))
-              .toList(),
-          child: const Icon(Icons.more_vert, color: Color(0xFF6B7280)),
         ),
       ]),
     );
@@ -267,13 +196,13 @@ class _ServiceScheduleScreenState extends State<ServiceScheduleScreen> {
 
   Widget _emptyState() => const Center(
           child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Icon(Icons.calendar_today_outlined, size: 48, color: Color(0xFFD1D5DB)),
+        Icon(Icons.schedule_outlined, size: 48, color: Color(0xFFD1D5DB)),
         SizedBox(height: 12),
-        Text('No appointments today',
-            style: TextStyle(
-                fontSize: 15,
-                color: Color(0xFF9CA3AF),
-                fontWeight: FontWeight.w500)),
+        Text('No services configured yet',
+            style: TextStyle(fontSize: 15, color: Color(0xFF9CA3AF), fontWeight: FontWeight.w500)),
+        SizedBox(height: 4),
+        Text('Ask your Facility Admin to add services for this clinic.',
+            style: TextStyle(fontSize: 12, color: Color(0xFFD1D5DB))),
       ]));
 
   Widget _errorState(String msg) => Center(
@@ -282,8 +211,6 @@ class _ServiceScheduleScreenState extends State<ServiceScheduleScreen> {
         const SizedBox(height: 10),
         Text(msg, style: const TextStyle(fontSize: 14, color: Colors.red)),
         const SizedBox(height: 12),
-        ElevatedButton(
-            onPressed: context.read<ScheduleProvider>().loadSchedule,
-            child: const Text('Retry')),
+        ElevatedButton(onPressed: _load, child: const Text('Retry')),
       ]));
 }

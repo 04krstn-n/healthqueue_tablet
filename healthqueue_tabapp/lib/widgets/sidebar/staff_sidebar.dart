@@ -128,6 +128,14 @@ class StaffSidebar extends StatelessWidget {
                     isActive: currentRoute == AppRoutes.serviceSchedule,
                   ),
 
+                  // APPOINTMENT MANAGEMENT
+                  _SidebarItem(
+                    label: 'Appointments',
+                    icon: Icons.event_note_rounded,
+                    route: AppRoutes.appointmentManagement,
+                    isActive: currentRoute == AppRoutes.appointmentManagement,
+                  ),
+
                   // PATIENT INQUIRIES
                   _SidebarItem(
                     label: 'Patient Inquiries',
@@ -312,7 +320,7 @@ class _SidebarItem extends StatelessWidget {
           ),
           decoration: BoxDecoration(
             color:
-                isActive ? Colors.white.withOpacity(0.18) : Colors.transparent,
+                isActive ? Colors.white.withValues(alpha: 0.18) : Colors.transparent,
             borderRadius: BorderRadius.circular(9),
           ),
           child: Row(
@@ -331,7 +339,7 @@ class _SidebarItem extends StatelessWidget {
                   style: TextStyle(
                     color: isActive
                         ? Colors.white
-                        : Colors.white.withOpacity(0.82),
+                        : Colors.white.withValues(alpha: 0.82),
                     fontSize: 12,
                     fontWeight: isActive ? FontWeight.w900 : FontWeight.w700,
                   ),

@@ -58,13 +58,10 @@ class StaffApiService {
     return res as Map<String, dynamic>;
   }
 
+  // Marks the patient as "called" — server starts a 5-min grace period.
   static Future<void> callPatient(String queueId) => _client.put('/queues/$queueId/call');
 
-  // NOTE: the server has a `startService` controller (sets status
-  // 'serving') but as of this refactor it is NOT registered in
-  // queueRoutes.js — only /call, /complete, /skip, /no-show, /cancel are
-  // mounted. Calling this will 404 until that route is added server-side.
-  // Included here so the app is ready to use it as soon as it exists.
+  // Moves a "called" entry into "serving" (now registered server-side).
   static Future<void> startService(String queueId) => _client.put('/queues/$queueId/start-service');
 
   static Future<void> completePatient(String queueId) => _client.put('/queues/$queueId/complete');
@@ -72,6 +69,18 @@ class StaffApiService {
   static Future<void> markNoShow(String queueId) => _client.put('/queues/$queueId/no-show');
   // Server route is PUT /queues/:id/cancel (controller fn is `cancelEntry`).
   static Future<void> cancelQueue(String queueId) => _client.put('/queues/$queueId/cancel');
+  // Brings a called/skipped/no-show entry back to "waiting".
+  static Future<void> requeueEntry(String queueId) => _client.put('/queues/$queueId/requeue');
+
+  // ─── Services — GET /services?clinicId=xxx ───────────────────────
+  // Returns the list of services configured by the Facility Admin for this
+  // clinic — used to populate the walk-in "Service / Reason for Visit"
+  // dropdown instead of free-text entry.
+  static Future<List<dynamic>> getClinicServices(String clinicId) async {
+    final res = await _client.get('/services', query: {'clinicId': clinicId});
+    final map = res as Map<String, dynamic>;
+    return (map['services'] as List<dynamic>?) ?? const [];
+  }
 
   static Future<Map<String, dynamic>> addWalkIn({
     required String clinicId,
@@ -141,8 +150,11 @@ class StaffApiService {
 
   // ─── Chatbot / Inquiries ──────────────────────────────────────────────
   // getChatLogs -> GET /chatbot-admin/logs: { success, data: [...] }
-  static Future<List<dynamic>> getChatLogs() async {
-    final res = await _client.get('/chatbot-admin/logs');
+  // clinicId is passed through so results are scoped to the staff's clinic
+  // (the server also enforces this for facility_admin/staff roles).
+  static Future<List<dynamic>> getChatLogs({String? clinicId}) async {
+    final res = await _client.get('/chatbot-admin/logs',
+        query: clinicId == null ? null : {'clinicId': clinicId});
     return (ApiClient.unwrap(res) as List<dynamic>?) ?? const [];
   }
 

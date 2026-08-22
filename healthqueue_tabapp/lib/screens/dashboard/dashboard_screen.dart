@@ -234,7 +234,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                                       Container(
                                         width: 36, height: 36,
                                         decoration: BoxDecoration(
-                                          color: c.withOpacity(0.1), borderRadius: BorderRadius.circular(9)),
+                                          color: c.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(9)),
                                         child: Center(child: Text(q.queueNumber,
                                           style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: c))),
                                       ),
@@ -251,7 +251,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                                       Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                         decoration: BoxDecoration(
-                                          color: c.withOpacity(0.1), borderRadius: BorderRadius.circular(99)),
+                                          color: c.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(99)),
                                         child: Text(label,
                                           style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: c)),
                                       ),
@@ -303,7 +303,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                       decoration: BoxDecoration(
-                                        color: c.withOpacity(0.1), borderRadius: BorderRadius.circular(99)),
+                                        color: c.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(99)),
                                       child: Text(
                                         s.status[0].toUpperCase() + s.status.substring(1),
                                         style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: c)),
@@ -329,7 +329,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         decoration: BoxDecoration(
           color: Colors.white, borderRadius: BorderRadius.circular(14),
           border: Border.all(color: const Color(0xFFE5E7EB)),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 6)],
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 6)],
         ),
         child: Row(children: [
           Container(
@@ -379,7 +379,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       decoration: BoxDecoration(
         color: Colors.white, borderRadius: BorderRadius.circular(14),
         border: Border.all(color: const Color(0xFFE5E7EB)),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 6)],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 6)],
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [

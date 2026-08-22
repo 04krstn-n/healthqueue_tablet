@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import '../models/inquiry_model.dart';
 import '../services/api_service.dart';
+import '../services/socket_service.dart';
 
 class InquiryProvider extends ChangeNotifier {
   List<InquiryModel> _inquiries = [];
   bool    _loading = false;
   String? _error;
   String  _query   = '';
+  String? _clinicId;
+  final ClinicSocketService _socket = ClinicSocketService();
 
   List<InquiryModel> get inquiries {
     if (_query.isEmpty) return _inquiries;
@@ -21,10 +24,23 @@ class InquiryProvider extends ChangeNotifier {
   String? get error     => _error;
 
   Future<void> loadInquiries({String? clinicId}) async {
+    if (clinicId != null && clinicId != _clinicId) {
+      _clinicId = clinicId;
+      // Chatbot escalations were never pushed live — staff only saw new
+      // ones on a manual refresh/re-open of the screen. This subscribes to
+      // the same 'chat_escalated' event the server already emits (see
+      // chatbotController.js) so the list refreshes as soon as a patient
+      // escalates, matching how the queue screens already behave.
+      _socket.connect(
+        clinicId,
+        eventNames: const ['chat_escalated'],
+        onQueueUpdated: (_) => loadInquiries(clinicId: _clinicId),
+      );
+    }
     _loading = true; _error = null; notifyListeners();
     try {
       // Fetch all logs — escalated ones come with isEscalated=true
-      final data = await StaffApiService.getChatLogs();
+      final data = await StaffApiService.getChatLogs(clinicId: clinicId ?? _clinicId);
       _inquiries = data
           .map((e) => InquiryModel.fromJson(e as Map<String, dynamic>))
           .toList()
@@ -60,4 +76,10 @@ class InquiryProvider extends ChangeNotifier {
   }
 
   void search(String q) { _query = q; notifyListeners(); }
+
+  @override
+  void dispose() {
+    _socket.dispose();
+    super.dispose();
+  }
 }

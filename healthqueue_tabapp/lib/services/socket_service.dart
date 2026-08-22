@@ -24,6 +24,7 @@ class ClinicSocketService {
     'patient_noshow',
     'queue_cancelled',
     'walkin_added',
+    'queue_requeued',
     'global_queue_change',
   ];
 
@@ -32,11 +33,16 @@ class ClinicSocketService {
   /// Connects and joins the given clinic's room. [onQueueUpdated] is called
   /// with the event payload whenever the server emits any queue-change
   /// event — typically used to trigger a provider refresh.
+  ///
+  /// [eventNames] lets other providers (e.g. inquiries) reuse this same
+  /// socket wrapper to listen for a different set of server-emitted events
+  /// instead of the queue-specific ones.
   Future<void> connect(
     String clinicId, {
     void Function(dynamic data)? onQueueUpdated,
     void Function()? onConnected,
     void Function()? onDisconnected,
+    List<String>? eventNames,
   }) async {
     final token = await ApiClient.instance.getToken();
 
@@ -54,7 +60,7 @@ class ClinicSocketService {
       onConnected?.call();
     });
 
-    for (final event in _queueEventNames) {
+    for (final event in (eventNames ?? _queueEventNames)) {
       _socket!.on(event, (data) => onQueueUpdated?.call(data));
     }
 

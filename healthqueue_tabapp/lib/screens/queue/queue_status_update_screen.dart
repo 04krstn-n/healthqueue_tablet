@@ -83,13 +83,13 @@ class _QueueStatusUpdateScreenState extends State<QueueStatusUpdateScreen> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white, borderRadius: BorderRadius.circular(12),
-        border: isServing ? Border.all(color: const Color(0xFF7C3AED).withOpacity(0.35), width: 1.5) : null,
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6)],
+        border: isServing ? Border.all(color: const Color(0xFF7C3AED).withValues(alpha: 0.35), width: 1.5) : null,
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 6)],
       ),
       child: Row(children: [
         Container(width: 50, height: 50,
           decoration: BoxDecoration(
-            color: (isServing ? const Color(0xFF7C3AED) : const Color(0xFFD97706)).withOpacity(0.1),
+            color: (isServing ? const Color(0xFF7C3AED) : const Color(0xFFD97706)).withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(10)),
           child: Center(child: Text(q.queueNumber,
             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900,

@@ -3,11 +3,13 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/queue_provider.dart';
 import '../../models/queue_model.dart';
+import '../../services/api_service.dart';
 import '../../widgets/sidebar/staff_sidebar.dart';
 
 const _kStatuses = [
   'All',
   'waiting',
+  'called',
   'serving',
   'done',
   'no_show',
@@ -52,6 +54,8 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
     switch (s) {
       case 'waiting':
         return const Color(0xFFD97706);
+      case 'called':
+        return const Color(0xFF0891B2);
       case 'serving':
         return const Color(0xFF7C3AED);
       case 'done':
@@ -72,6 +76,8 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
     switch (s) {
       case 'waiting':
         return 'Waiting';
+      case 'called':
+        return 'Called';
       case 'serving':
         return 'Serving';
       case 'done':
@@ -93,8 +99,15 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
     final nameCtrl = TextEditingController();
     final phoneCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
-    final serviceCtrl = TextEditingController();
+    String? selectedService;
     String patientType = 'Regular';
+
+    // Service list is fetched once here (not inside the StatefulBuilder) so
+    // it isn't re-requested on every setS() rebuild while the sheet is open.
+    final clinicId = context.read<AuthProvider>().staff?.clinicId;
+    final servicesFuture = clinicId == null
+        ? Future.value(<dynamic>[])
+        : StaffApiService.getClinicServices(clinicId);
 
     showModalBottomSheet(
       context: context,
@@ -124,7 +137,7 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
                             width: 36,
                             height: 36,
                             decoration: BoxDecoration(
-                                color: const Color(0xFF2563EB).withOpacity(0.1),
+                                color: const Color(0xFF2563EB).withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(9)),
                             child: const Icon(Icons.person_add_outlined,
                                 color: Color(0xFF2563EB), size: 20)),
@@ -145,12 +158,66 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
                       const SizedBox(height: 14),
                       _lbl('Service / Reason for Visit *'),
                       const SizedBox(height: 6),
-                      TextField(
-                          controller: serviceCtrl,
-                          decoration: _ideco('e.g. Laboratory, Ultrasound',
-                              Icons.medical_services_outlined)),
+                      // Pulled from the clinic's configured services (added
+                      // by the Facility Admin) instead of free-text entry,
+                      // so walk-in reasons always match a real service.
+                      FutureBuilder<List<dynamic>>(
+                        future: servicesFuture,
+                        builder: (_, snap) {
+                          if (snap.connectionState != ConnectionState.done) {
+                            return Container(
+                              height: 46,
+                              alignment: Alignment.centerLeft,
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF9FAFB),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0xFFE5E7EB)),
+                              ),
+                              child: const SizedBox(
+                                  width: 16, height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2)),
+                            );
+                          }
+
+                          final services = (snap.data ?? [])
+                              .whereType<Map>()
+                              .where((s) => s['isAvailable'] != false)
+                              .map((s) => s['name']?.toString() ?? '')
+                              .where((n) => n.isNotEmpty)
+                              .toSet()
+                              .toList();
+
+                          if (services.isEmpty) {
+                            return Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF7ED),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0xFFFED7AA)),
+                              ),
+                              child: const Text(
+                                'No services configured for this clinic yet. '
+                                'Ask your Facility Admin to add one under Service Schedule.',
+                                style: TextStyle(fontSize: 12, color: Color(0xFF9A3412)),
+                              ),
+                            );
+                          }
+
+                          selectedService ??= services.first;
+                          return DropdownButtonFormField<String>(
+                            initialValue: selectedService,
+                            decoration: _ideco('Select a service',
+                                Icons.medical_services_outlined),
+                            items: services
+                                .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                                .toList(),
+                            onChanged: (v) => setS(() => selectedService = v),
+                          );
+                        },
+                      ),
                       const SizedBox(height: 14),
-                      _lbl('Contact Number (optional)'),
+                      _lbl('Contact Number *'),
                       const SizedBox(height: 6),
                       TextField(
                           controller: phoneCtrl,
@@ -161,7 +228,7 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
                       _lbl('Patient Type'),
                       const SizedBox(height: 6),
                       DropdownButtonFormField<String>(
-                        value: patientType,
+                        initialValue: patientType,
                         decoration: const InputDecoration(
                             border: OutlineInputBorder(),
                             contentPadding: EdgeInsets.symmetric(
@@ -199,16 +266,24 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
                                   borderRadius: BorderRadius.circular(10))),
                           onPressed: () {
                             if (nameCtrl.text.trim().isEmpty ||
-                                serviceCtrl.text.trim().isEmpty) {
+                                selectedService == null ||
+                                selectedService!.isEmpty) {
                               ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
                                   content: Text(
                                       'Patient name and service are required.'),
                                   backgroundColor: Colors.red));
                               return;
                             }
+                            if (phoneCtrl.text.trim().isEmpty) {
+                              ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+                                  content: Text(
+                                      'Contact number is required so the patient can be notified.'),
+                                  backgroundColor: Colors.red));
+                              return;
+                            }
                             context.read<QueueProvider>().addPatient(
                                   patientName: nameCtrl.text.trim(),
-                                  serviceName: serviceCtrl.text.trim(),
+                                  serviceName: selectedService!,
                                   patientPhone: phoneCtrl.text.trim(),
                                   patientType: patientType,
                                   notes: notesCtrl.text.trim(),
@@ -414,6 +489,15 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
 
                 const SizedBox(width: 6),
 
+                // Called
+                _badge(
+                  'Called',
+                  provider.called.length,
+                  const Color(0xFF0891B2),
+                ),
+
+                const SizedBox(width: 6),
+
                 // Serving
                 _badge(
                   'Serving',
@@ -504,7 +588,7 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
             ? Border.all(color: const Color(0xFFF59E0B), width: 1.5)
             : Border.all(color: const Color(0xFFF3F4F6)),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 5)
+          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 5)
         ],
       ),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -513,9 +597,9 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
           width: 52,
           height: 52,
           decoration: BoxDecoration(
-              color: _sc(q.status).withOpacity(0.1),
+              color: _sc(q.status).withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(11),
-              border: Border.all(color: _sc(q.status).withOpacity(0.2))),
+              border: Border.all(color: _sc(q.status).withValues(alpha: 0.2))),
           child: Center(
               child: Text(q.queueNumber,
                   style: TextStyle(
@@ -585,12 +669,21 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
             children: [
               _statusPill(q.status),
               const SizedBox(height: 6),
+              // Primary action per status — every status that isn't a
+              // terminal one (done/cancelled) now has a way forward, so
+              // called/skipped/no_show entries no longer get stuck.
               if (q.status == 'waiting')
-                _actionBtn('Call', const Color(0xFF7C3AED),
+                _actionBtn('Call', const Color(0xFF0891B2),
+                    () => provider.updateStatus(q.id, 'called')),
+              if (q.status == 'called')
+                _actionBtn('Start', const Color(0xFF7C3AED),
                     () => provider.updateStatus(q.id, 'serving')),
               if (q.status == 'serving')
                 _actionBtn('Done', const Color(0xFF16A34A),
                     () => provider.updateStatus(q.id, 'done')),
+              if (q.status == 'skipped' || q.status == 'no_show')
+                _actionBtn('Requeue', const Color(0xFFD97706),
+                    () => provider.updateStatus(q.id, 'waiting')),
               const SizedBox(height: 4),
               PopupMenuButton<String>(
                   onSelected: (v) => provider.updateStatus(q.id, v),
@@ -604,9 +697,23 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
                       opts.add(const PopupMenuItem(
                           value: 'cancelled', child: Text('Cancel')));
                     }
+                    if (q.status == 'called') {
+                      opts.add(const PopupMenuItem(
+                          value: 'waiting', child: Text('Back to Waiting')));
+                      opts.add(const PopupMenuItem(
+                          value: 'no_show', child: Text('No Show')));
+                      opts.add(const PopupMenuItem(
+                          value: 'cancelled', child: Text('Cancel')));
+                    }
                     if (q.status == 'serving') {
                       opts.add(const PopupMenuItem(
                           value: 'no_show', child: Text('No Show')));
+                      opts.add(const PopupMenuItem(
+                          value: 'cancelled', child: Text('Cancel')));
+                    }
+                    if (q.status == 'skipped' || q.status == 'no_show') {
+                      opts.add(const PopupMenuItem(
+                          value: 'waiting', child: Text('Requeue')));
                       opts.add(const PopupMenuItem(
                           value: 'cancelled', child: Text('Cancel')));
                     }
@@ -622,7 +729,7 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
   Widget _badge(String label, int count, Color c) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
-            color: c.withOpacity(0.08),
+            color: c.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(99)),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           Text('$count',
@@ -638,9 +745,9 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
   Widget _statusPill(String s) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
         decoration: BoxDecoration(
-            color: _sc(s).withOpacity(0.1),
+            color: _sc(s).withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(99),
-            border: Border.all(color: _sc(s).withOpacity(0.25))),
+            border: Border.all(color: _sc(s).withValues(alpha: 0.25))),
         child: Text(_sl(s),
             style: TextStyle(
                 fontSize: 10, fontWeight: FontWeight.w700, color: _sc(s))),
@@ -649,7 +756,7 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
   Widget _tag(String t, Color c) => Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-          color: c.withOpacity(0.1), borderRadius: BorderRadius.circular(99)),
+          color: c.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(99)),
       child: Text(t,
           style:
               TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: c)));

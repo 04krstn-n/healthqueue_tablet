@@ -6,7 +6,7 @@ import '../services/api_service.dart';
 /// Assistance requests are managed locally (no dedicated server endpoint).
 class AssistanceProvider extends ChangeNotifier {
   List<QueueModel>        _queue    = [];
-  List<Map<String, dynamic>> _localRequests = [];
+  final List<Map<String, dynamic>> _localRequests = [];
   bool    _loading  = false;
   String? _clinicId;
   String? _error;

@@ -99,11 +99,11 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
                     const SizedBox(width: 14),
 
                     // Title and subtitle
-                    Expanded(
+                    const Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             'Patient Inquiries',
                             style: TextStyle(
                               fontSize: 22,
@@ -111,7 +111,7 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
                               color: Color(0xFF111827),
                             ),
                           ),
-                          const Text(
+                          Text(
                             'Chatbot logs & escalated concerns',
                             style: TextStyle(
                               fontSize: 13,
@@ -213,7 +213,7 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
   }
 
   Widget _logsList(List<InquiryModel> logs) {
-    if (logs.isEmpty)
+    if (logs.isEmpty) {
       return const Center(
           child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
         Icon(Icons.chat_bubble_outline_rounded,
@@ -222,6 +222,7 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
         Text('No chatbot conversations yet',
             style: TextStyle(fontSize: 14, color: Color(0xFF9CA3AF))),
       ]));
+    }
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
       itemCount: logs.length,
@@ -240,7 +241,7 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
             ? Border.all(color: const Color(0xFFFB923C), width: 1.5)
             : Border.all(color: const Color(0xFFF3F4F6)),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 5)
+          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 5)
         ],
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -291,7 +292,7 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
     final resolved = escalated.where((i) => i.resolvedByStaff).toList();
     final all = [...unresolved, ...resolved];
 
-    if (all.isEmpty)
+    if (all.isEmpty) {
       return const Center(
           child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
         Icon(Icons.check_circle_outline, size: 44, color: Color(0xFF16A34A)),
@@ -302,6 +303,7 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
         Text('All patient concerns are resolved',
             style: TextStyle(fontSize: 12, color: Color(0xFFD1D5DB))),
       ]));
+    }
 
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
@@ -320,7 +322,7 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
                       : const Color(0xFFFED7AA),
                   width: 1.5),
               boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 5)
+                BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 5)
               ]),
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -462,9 +464,9 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
   Widget _pill(String t, Color c) => Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-          color: c.withOpacity(0.1),
+          color: c.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(99),
-          border: Border.all(color: c.withOpacity(0.25))),
+          border: Border.all(color: c.withValues(alpha: 0.25))),
       child: Text(t,
           style:
               TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: c)));
@@ -480,7 +482,7 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
             Expanded(
                 child: Text(text,
                     style: TextStyle(
-                        fontSize: 12, color: iconColor.withOpacity(0.9)),
+                        fontSize: 12, color: iconColor.withValues(alpha: 0.9)),
                     maxLines: 4,
                     overflow: TextOverflow.ellipsis)),
           ]));

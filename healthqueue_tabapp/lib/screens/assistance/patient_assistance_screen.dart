@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/assistance_provider.dart';
+import '../../services/api_service.dart';
 import '../../widgets/sidebar/staff_sidebar.dart';
 
 class PatientAssistanceScreen extends StatefulWidget {
@@ -19,17 +20,31 @@ class _PatientAssistanceScreenState extends State<PatientAssistanceScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final clinicId = context.read<AuthProvider>().staff?.clinicId;
-      if (clinicId != null)
+      if (clinicId != null) {
         context.read<AssistanceProvider>().setClinicId(clinicId);
+      }
     });
   }
 
   void _logRequest() {
     final nameCtrl = TextEditingController();
-    final detailsCtrl = TextEditingController();
+    final mrnCtrl = TextEditingController();
     final msgCtrl = TextEditingController();
     final contactCtrl = TextEditingController();
-    String type = 'Queue Concern';
+    String? selectedQueueId;
+    String? selectedServiceType;
+
+    final clinicId = context.read<AuthProvider>().staff?.clinicId;
+    // Service types come from the clinic's configured services (added by
+    // the Facility Admin) instead of a generic hardcoded list — "Request
+    // Type" is meant to be the service the patient needs help with.
+    final servicesFuture = clinicId == null
+        ? Future.value(<dynamic>[])
+        : StaffApiService.getClinicServices(clinicId);
+    // Live queue entries — picking one auto-fills name/MRN-lookup/contact so
+    // the queue number is never hand-typed and always points at a real
+    // patient already in today's queue.
+    final queueEntries = context.read<AssistanceProvider>().queue;
 
     showDialog(
       context: context,
@@ -38,32 +53,83 @@ class _PatientAssistanceScreenState extends State<PatientAssistanceScreen> {
           title: const Text('Log Assistance Request',
               style: TextStyle(fontWeight: FontWeight.w800)),
           content: SizedBox(
-            width: 400,
+            width: 420,
             child: SingleChildScrollView(
               child: Column(children: [
                 _dialogField(nameCtrl, 'Patient Name'),
                 const SizedBox(height: 10),
-                _dialogField(detailsCtrl, 'MRN / Queue Number (optional)'),
+                _dialogField(mrnCtrl, 'MRN'),
                 const SizedBox(height: 10),
+                // Queue Number — selected from today's actual queue, not typed.
                 DropdownButtonFormField<String>(
-                  value: type,
+                  initialValue: selectedQueueId,
+                  isExpanded: true,
                   decoration: const InputDecoration(
-                      labelText: 'Request Type', border: OutlineInputBorder()),
-                  items: [
-                    'Queue Concern',
-                    'Walk-in Help',
-                    'Pharmacy Guidance',
-                    'Interpreter Request',
-                    'Other'
-                  ]
-                      .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                      labelText: 'Queue Number (optional)',
+                      border: OutlineInputBorder()),
+                  items: queueEntries
+                      .map((q) => DropdownMenuItem(
+                            value: q.id,
+                            child: Text(
+                              '${q.queueNumber} — ${q.patientName}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ))
                       .toList(),
-                  onChanged: (v) => setDs(() => type = v ?? type),
+                  onChanged: (v) {
+                    setDs(() {
+                      selectedQueueId = v;
+                      final match = queueEntries.where((q) => q.id == v);
+                      if (match.isNotEmpty) {
+                        final q = match.first;
+                        if (nameCtrl.text.trim().isEmpty) nameCtrl.text = q.patientName;
+                        if (contactCtrl.text.trim().isEmpty) contactCtrl.text = q.patientPhone;
+                      }
+                    });
+                  },
+                ),
+                const SizedBox(height: 10),
+                // Request Type — the clinic's actual services, not a fixed
+                // generic list, so it reflects what was set up under
+                // Service Schedule.
+                FutureBuilder<List<dynamic>>(
+                  future: servicesFuture,
+                  builder: (_, snap) {
+                    final services = (snap.data ?? [])
+                        .whereType<Map>()
+                        .map((s) => s['name']?.toString() ?? '')
+                        .where((n) => n.isNotEmpty)
+                        .toSet()
+                        .toList();
+                    if (snap.connectionState != ConnectionState.done) {
+                      return const SizedBox(
+                          height: 46,
+                          child: Center(
+                              child: SizedBox(
+                                  width: 16, height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2))));
+                    }
+                    if (services.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    selectedServiceType ??= services.first;
+                    return DropdownButtonFormField<String>(
+                      initialValue: selectedServiceType,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                          labelText: 'Request Type (Service)',
+                          border: OutlineInputBorder()),
+                      items: services
+                          .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                          .toList(),
+                      onChanged: (v) => setDs(() => selectedServiceType = v),
+                    );
+                  },
                 ),
                 const SizedBox(height: 10),
                 _dialogField(msgCtrl, 'Message / Concern', maxLines: 3),
                 const SizedBox(height: 10),
-                _dialogField(contactCtrl, 'Contact Number (optional)'),
+                _dialogField(contactCtrl, 'Contact Number *'),
               ]),
             ),
           ),
@@ -73,14 +139,29 @@ class _PatientAssistanceScreenState extends State<PatientAssistanceScreen> {
                 child: const Text('Cancel')),
             ElevatedButton(
               onPressed: () {
-                if (nameCtrl.text.trim().isEmpty || msgCtrl.text.trim().isEmpty)
+                if (nameCtrl.text.trim().isEmpty || msgCtrl.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+                    content: Text('Patient name and message are required.'),
+                    backgroundColor: Colors.red,
+                  ));
                   return;
+                }
+                if (contactCtrl.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+                    content: Text('Contact number is required so the patient can be notified.'),
+                    backgroundColor: Colors.red,
+                  ));
+                  return;
+                }
                 context.read<AssistanceProvider>().addLocalRequest({
                   'name': nameCtrl.text.trim(),
-                  'details': detailsCtrl.text.trim().isEmpty
-                      ? ''
-                      : detailsCtrl.text.trim(),
-                  'type': type,
+                  'mrn': mrnCtrl.text.trim(),
+                  'queueNumber': (() {
+                    final match =
+                        queueEntries.where((q) => q.id == selectedQueueId);
+                    return match.isEmpty ? '' : match.first.queueNumber;
+                  })(),
+                  'type': selectedServiceType ?? 'General',
                   'message': msgCtrl.text.trim(),
                   'contact': contactCtrl.text.trim(),
                 });
@@ -166,11 +247,11 @@ class _PatientAssistanceScreenState extends State<PatientAssistanceScreen> {
                       const SizedBox(width: 14),
 
                       // Title and subtitle
-                      Expanded(
+                      const Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
+                            Text(
                               'Patient Assistance',
                               style: TextStyle(
                                 fontSize: 22,
@@ -178,7 +259,7 @@ class _PatientAssistanceScreenState extends State<PatientAssistanceScreen> {
                                 color: Color(0xFF111827),
                               ),
                             ),
-                            const Text(
+                            Text(
                               'Queue overview & assistance requests',
                               style: TextStyle(
                                 fontSize: 13,
@@ -321,7 +402,7 @@ class _PatientAssistanceScreenState extends State<PatientAssistanceScreen> {
             color: Colors.white,
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6)
+              BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 6)
             ],
           ),
           child: Row(children: [
@@ -330,10 +411,10 @@ class _PatientAssistanceScreenState extends State<PatientAssistanceScreen> {
               width: 50,
               height: 50,
               decoration: BoxDecoration(
-                color: _statusColor(q.status).withOpacity(0.1),
+                color: _statusColor(q.status).withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(10),
                 border:
-                    Border.all(color: _statusColor(q.status).withOpacity(0.3)),
+                    Border.all(color: _statusColor(q.status).withValues(alpha: 0.3)),
               ),
               child: Center(
                   child: Text(q.queueNumber,
@@ -364,7 +445,7 @@ class _PatientAssistanceScreenState extends State<PatientAssistanceScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: _statusColor(q.status).withOpacity(0.1),
+                  color: _statusColor(q.status).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(99),
                 ),
                 child: Text(q.status[0].toUpperCase() + q.status.substring(1),
@@ -410,7 +491,7 @@ class _PatientAssistanceScreenState extends State<PatientAssistanceScreen> {
             color: Colors.white,
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6)
+              BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 6)
             ],
           ),
           child: Row(children: [
@@ -436,6 +517,18 @@ class _PatientAssistanceScreenState extends State<PatientAssistanceScreen> {
                               fontWeight: FontWeight.w600)),
                     ),
                   ]),
+                  if ((r['mrn'] ?? '').toString().isNotEmpty ||
+                      (r['queueNumber'] ?? '').toString().isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      [
+                        if ((r['mrn'] ?? '').toString().isNotEmpty) 'MRN: ${r['mrn']}',
+                        if ((r['queueNumber'] ?? '').toString().isNotEmpty)
+                          'Queue #: ${r['queueNumber']}',
+                      ].join('   ·   '),
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
+                    ),
+                  ],
                   const SizedBox(height: 4),
                   Text(r['message'] ?? '',
                       style: const TextStyle(
