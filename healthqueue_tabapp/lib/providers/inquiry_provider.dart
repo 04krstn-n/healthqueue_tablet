@@ -5,6 +5,13 @@ import '../services/socket_service.dart';
 
 class InquiryProvider extends ChangeNotifier {
   List<InquiryModel> _inquiries = [];
+  // Fetched separately from /chatbot-admin/escalated rather than filtered
+  // out of `_inquiries` client-side — `_inquiries` is capped at the last
+  // 100 messages of ANY kind, so on a busy clinic an older unresolved
+  // escalation could fall off that cap before staff ever saw it. The
+  // dedicated endpoint is sorted by escalation time and isn't diluted by
+  // regular FAQ/bot chatter, so nothing gets lost.
+  List<InquiryModel> _escalated = [];
   bool    _loading = false;
   String? _error;
   String  _query   = '';
@@ -15,6 +22,15 @@ class InquiryProvider extends ChangeNotifier {
     if (_query.isEmpty) return _inquiries;
     final q = _query.toLowerCase();
     return _inquiries.where((i) =>
+      i.message.toLowerCase().contains(q) ||
+      i.patientName.toLowerCase().contains(q)
+    ).toList();
+  }
+
+  List<InquiryModel> get escalatedInquiries {
+    if (_query.isEmpty) return _escalated;
+    final q = _query.toLowerCase();
+    return _escalated.where((i) =>
       i.message.toLowerCase().contains(q) ||
       i.patientName.toLowerCase().contains(q)
     ).toList();
@@ -39,9 +55,16 @@ class InquiryProvider extends ChangeNotifier {
     }
     _loading = true; _error = null; notifyListeners();
     try {
-      // Fetch all logs — escalated ones come with isEscalated=true
-      final data = await StaffApiService.getChatLogs(clinicId: clinicId ?? _clinicId);
-      _inquiries = data
+      final targetClinicId = clinicId ?? _clinicId;
+      final results = await Future.wait([
+        StaffApiService.getChatLogs(clinicId: targetClinicId),
+        StaffApiService.getEscalatedLogs(clinicId: targetClinicId),
+      ]);
+      _inquiries = (results[0])
+          .map((e) => InquiryModel.fromJson(e as Map<String, dynamic>))
+          .toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      _escalated = (results[1])
           .map((e) => InquiryModel.fromJson(e as Map<String, dynamic>))
           .toList()
         ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
@@ -57,19 +80,20 @@ class InquiryProvider extends ChangeNotifier {
   Future<void> resolveEscalation(String id, {String note = ''}) async {
     try {
       await StaffApiService.resolveEscalation(id, note: note);
-      // Update locally
+      // Update locally in both lists — the entry can appear in `_inquiries`
+      // (general log feed) as well as `_escalated` (dedicated feed).
+      InquiryModel resolve(InquiryModel old) => InquiryModel(
+        id: old.id, message: old.message, reply: old.reply,
+        patientName: old.patientName, createdAt: old.createdAt,
+        isFallback: old.isFallback, source: old.source,
+        isEscalated: old.isEscalated, escalationNote: old.escalationNote,
+        resolvedByStaff: true, resolvedNote: note,
+      );
       final idx = _inquiries.indexWhere((i) => i.id == id);
-      if (idx >= 0) {
-        final old = _inquiries[idx];
-        _inquiries[idx] = InquiryModel(
-          id: old.id, message: old.message, reply: old.reply,
-          patientName: old.patientName, createdAt: old.createdAt,
-          isFallback: old.isFallback, source: old.source,
-          isEscalated: old.isEscalated, escalationNote: old.escalationNote,
-          resolvedByStaff: true, resolvedNote: note,
-        );
-        notifyListeners();
-      }
+      if (idx >= 0) _inquiries[idx] = resolve(_inquiries[idx]);
+      final eIdx = _escalated.indexWhere((i) => i.id == id);
+      if (eIdx >= 0) _escalated[eIdx] = resolve(_escalated[eIdx]);
+      notifyListeners();
     } on StaffApiException catch (e) {
       _error = e.message; notifyListeners();
     }

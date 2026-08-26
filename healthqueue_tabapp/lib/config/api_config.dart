@@ -23,25 +23,34 @@ class ApiConfig {
   /// Hard fallback used only if no .env is present and this isn't a debug
   /// build. Update this to your real Heroku URL, e.g.
   /// 'https://healthqueue-plus.herokuapp.com'.
-  static const String prodFallbackUrl = 'https://REPLACE_WITH_YOUR_HEROKU_APP.herokuapp.com';
+  static const String prodFallbackUrl =
+      'https://REPLACE_WITH_YOUR_HEROKU_APP.herokuapp.com';
 
   static const Duration requestTimeout = Duration(seconds: 30);
 
   /// Resolved base URL, no trailing slash, WITHOUT the `/api` prefix.
-  /// (Individual endpoints below already include `/api/...` in their path,
-  /// matching server.js's route mounting.)
+  /// [buildUri] adds `/api` automatically, so callers (see api_service.dart)
+  /// pass paths like `/queues`, not `/api/queues`.
   static String get baseUrl {
     if (dotenv.isInitialized) {
       final envUrl = dotenv.env['API_BASE_URL'];
       if (envUrl != null && envUrl.trim().isNotEmpty) {
-        return envUrl.trim().replaceAll(RegExp(r'/+$'), '');
+        // Strip trailing slashes AND a trailing /api — buildUri() adds
+        // /api itself, so a .env value ending in /api would otherwise
+        // produce /api/api/... (e.g. /api/api/auth/login).
+        return envUrl
+            .trim()
+            .replaceAll(RegExp(r'/+$'), '')
+            .replaceAll(RegExp(r'/api$', caseSensitive: false), '');
       }
     }
 
     if (kDebugMode) {
       // Android emulator loopback / iOS simulator loopback.
-      if (!kIsWeb && Platform.isAndroid) return 'http://10.0.2.2:5000';
-      if (!kIsWeb && Platform.isIOS) return 'http://127.0.0.1:5000';
+      // hq-server's default PORT (src/config/config.js) is 4000 unless
+      // overridden by a PORT env var on the server.
+      if (!kIsWeb && Platform.isAndroid) return 'http://10.0.2.2:4000';
+      if (!kIsWeb && Platform.isIOS) return 'http://127.0.0.1:4000';
     }
 
     return prodFallbackUrl;
@@ -53,7 +62,14 @@ class ApiConfig {
     queryParams?.forEach((k, v) {
       if (v != null) query[k] = v.toString();
     });
-    return Uri.parse('$baseUrl$cleanPath').replace(
+    // server.js mounts every route under /api (e.g. app.use('/api/queues', ...)).
+    // Guard against baseUrl already ending in /api (e.g. a stale build or a
+    // .env value that still has it) so this can never produce /api/api/...
+    final trimmedBase = baseUrl.replaceAll(RegExp(r'/+$'), '');
+    final root = RegExp(r'/api$', caseSensitive: false).hasMatch(trimmedBase)
+        ? trimmedBase
+        : '$trimmedBase/api';
+    return Uri.parse('$root$cleanPath').replace(
       queryParameters: query.isEmpty ? null : query,
     );
   }

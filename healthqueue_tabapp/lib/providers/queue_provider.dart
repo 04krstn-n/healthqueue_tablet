@@ -19,10 +19,16 @@ class QueueProvider extends ChangeNotifier {
   List<QueueModel> get called    => _entries.where((e) => e.status == 'called').toList();
   List<QueueModel> get serving   => _entries.where((e) => e.status == 'serving').toList();
   List<QueueModel> get completed => _entries.where((e) => ['done','completed'].contains(e.status)).toList();
+  List<QueueModel> get noShow    => _entries.where((e) => e.status == 'no_show').toList();
+  List<QueueModel> get skipped   => _entries.where((e) => e.status == 'skipped').toList();
+  List<QueueModel> get cancelled => _entries.where((e) => e.status == 'cancelled').toList();
   List<QueueModel> get priority  => _entries.where((e) => e.isPriority).toList();
   int get waitingCount   => waiting.length;
   int get servingCount   => serving.length;
   int get completedCount => completed.length;
+  int get noShowCount    => noShow.length;
+  int get skippedCount   => skipped.length;
+  int get cancelledCount => cancelled.length;
 
   void setClinicId(String id) {
     if (_clinicId != id) {
@@ -68,7 +74,17 @@ class QueueProvider extends ChangeNotifier {
   // entries were stuck with no button that could move them forward. This
   // now matches each target status to the correct endpoint, including
   // 'waiting' which requeues a called/skipped/no_show entry.
-  Future<void> updateStatus(String entryId, String status) async {
+  //
+  // Returns null on success, or the server's error message on failure (e.g.
+  // the backend rejects requeuing an entry that isn't called/skipped/
+  // no_show). Callers should show this to the user — previously the error
+  // was stored in [_error] but immediately wiped by the loadEntries() call
+  // below before anyone could read it, so a rejected change silently
+  // reverted with no explanation.
+  Future<String?> updateStatus(String entryId, String rawStatus) async {
+    // Normalize defensively — see the same normalization in
+    // QueueModel.fromJson for why the server's casing can't be trusted.
+    final status = rawStatus.toLowerCase();
     _optimisticUpdate(entryId, status);
     try {
       switch (status) {
@@ -83,9 +99,10 @@ class QueueProvider extends ChangeNotifier {
       }
       // Refresh to get authoritative state
       await loadEntries();
+      return null;
     } on StaffApiException catch (e) {
-      _error = e.message; notifyListeners();
-      await loadEntries(); // revert to server state
+      await loadEntries(); // revert the optimistic guess to the true server state
+      return e.message;
     }
   }
 

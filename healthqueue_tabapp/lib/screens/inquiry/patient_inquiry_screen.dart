@@ -57,7 +57,7 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
     final auth = context.watch<AuthProvider>();
     final provider = context.watch<InquiryProvider>();
 
-    final escalated = provider.inquiries.where((i) => i.isEscalated).toList();
+    final escalated = provider.escalatedInquiries;
     final unresolved = escalated.where((i) => !i.resolvedByStaff).length;
 
     return Scaffold(
@@ -369,11 +369,11 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                    onPressed: () => _resolveDialog(inq, provider),
-                    icon: const Icon(Icons.check, size: 15),
-                    label: const Text('Mark Resolved'),
+                    onPressed: () => _replyDialog(inq, provider),
+                    icon: const Icon(Icons.reply_rounded, size: 15),
+                    label: const Text('Reply to Patient'),
                     style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF16A34A),
+                        backgroundColor: const Color(0xFF2563EB),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 10),
                         shape: RoundedRectangleBorder(
@@ -386,40 +386,100 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
     );
   }
 
-  void _resolveDialog(InquiryModel inq, InquiryProvider provider) {
-    final noteCtrl = TextEditingController();
+  // The only channel the backend exposes for staff to respond to an
+  // escalated conversation is PUT /chatbot/resolve/:id, which saves a
+  // "resolvedNote" and marks the inquiry resolved in the same call — there
+  // is no separate "send a reply without closing" endpoint. So this dialog
+  // shows the full thread like a real conversation and sends the staff's
+  // reply through that note field, which is the actual channel that
+  // reaches the patient's side; it's presented as "Reply" since that's
+  // what it does, but note it always resolves the inquiry at the same time.
+  void _replyDialog(InquiryModel inq, InquiryProvider provider) {
+    final replyCtrl = TextEditingController();
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Resolve Inquiry',
-            style: TextStyle(fontWeight: FontWeight.w800)),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('Patient: ${inq.patientName}',
-              style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
-          const SizedBox(height: 12),
-          TextField(
-              controller: noteCtrl,
-              maxLines: 3,
+      builder: (dialogCtx) => AlertDialog(
+        title: Text('Reply to ${inq.patientName}',
+            style: const TextStyle(fontWeight: FontWeight.w800)),
+        // The dialog's own vertical space shrinks once the on-screen
+        // keyboard opens (autofocus below triggers it immediately), and a
+        // fixed-size Column doesn't shrink with it — that's what caused
+        // the earlier "bottom overflowed" error. Capping content height to
+        // the available screen height and making it scrollable means it
+        // resizes/scrolls instead of overflowing, on any screen size.
+        content: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 420,
+            maxHeight: MediaQuery.of(dialogCtx).size.height * 0.7,
+          ),
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+            // Full conversation thread so staff have context before replying
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 220),
+              child: SingleChildScrollView(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  _bubble(inq.message, const Color(0xFFF3F4F6),
+                      Icons.person_outline, const Color(0xFF6B7280)),
+                  if (inq.reply.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    _bubble(inq.reply, const Color(0xFFEFF6FF),
+                        Icons.smart_toy_outlined, const Color(0xFF2563EB)),
+                  ],
+                  if (inq.escalationNote.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    _bubble('Concern: ${inq.escalationNote}',
+                        const Color(0xFFFFF7ED), Icons.warning_amber_outlined,
+                        const Color(0xFFF97316)),
+                  ],
+                ]),
+              ),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: replyCtrl,
+              autofocus: true,
+              maxLines: 4,
               decoration: const InputDecoration(
-                  labelText: 'Resolution note (optional)',
-                  border: OutlineInputBorder())),
-        ]),
+                  labelText: 'Your reply to the patient',
+                  hintText: 'Type your response…',
+                  border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 8),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Sending this will also mark the conversation as resolved.',
+                style: TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
+              ),
+            ),
+            ]),
+          ),
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogCtx),
               child: const Text('Cancel')),
-          ElevatedButton(
+          ElevatedButton.icon(
+              icon: const Icon(Icons.send_rounded, size: 15),
               onPressed: () {
-                provider.resolveEscalation(inq.id, note: noteCtrl.text.trim());
-                Navigator.pop(context);
+                final text = replyCtrl.text.trim();
+                if (text.isEmpty) {
+                  ScaffoldMessenger.of(dialogCtx).showSnackBar(const SnackBar(
+                      content: Text('Please type a reply first.'),
+                      backgroundColor: Colors.red));
+                  return;
+                }
+                provider.resolveEscalation(inq.id, note: text);
+                Navigator.pop(dialogCtx);
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text('Inquiry marked as resolved.'),
+                    content: Text('Reply sent to patient.'),
                     backgroundColor: Color(0xFF16A34A)));
               },
               style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF16A34A),
+                  backgroundColor: const Color(0xFF2563EB),
                   foregroundColor: Colors.white),
-              child: const Text('Resolve')),
+              label: const Text('Send Reply')),
         ],
       ),
     );

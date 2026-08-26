@@ -34,12 +34,25 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
   final _searchCtrl = TextEditingController();
   String _statusFilter = 'All';
 
+  // Toggles between the editable list view and the read-only Live Queue
+  // view (migrated in from the old standalone Queue Monitoring screen).
+  bool _liveView = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final cid = context.read<AuthProvider>().staff?.clinicId;
-      if (cid != null) context.read<QueueProvider>().setClinicId(cid);
+      if (cid == null) return;
+      final queueProvider = context.read<QueueProvider>();
+      // setClinicId() only re-fetches the FIRST time it sees this clinic id
+      // (it also opens the socket connection). Since QueueProvider lives for
+      // the whole staff session, coming back to this screen after visiting
+      // another one wouldn't otherwise re-fetch — force a fresh pull from
+      // the backend every time this screen is entered so staff always see
+      // the authoritative status, not a possibly-stale in-memory copy.
+      queueProvider.setClinicId(cid);
+      queueProvider.loadEntries();
     });
   }
 
@@ -387,6 +400,29 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
                       ),
                     ),
 
+                    // List / Live Queue toggle
+                    Container(
+                      height: 36,
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF3F4F6),
+                        borderRadius: BorderRadius.circular(9),
+                        border: Border.all(color: const Color(0xFFE5E7EB)),
+                      ),
+                      child: Row(
+                        children: [
+                          _viewToggleBtn('List', !_liveView, () {
+                            setState(() => _liveView = false);
+                          }),
+                          _viewToggleBtn('Live Queue', _liveView, () {
+                            setState(() => _liveView = true);
+                          }),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(width: 8),
+
                     // Refresh
                     IconButton(
                       onPressed: provider.loadEntries,
@@ -431,6 +467,29 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
           ),
 
           // ── Filter + badges + search — all on ONE row ──────────────────────
+          // Hidden in Live Queue mode, which shows its own summary row below.
+          if (_liveView)
+            Container(
+              color: Colors.white,
+              padding: const EdgeInsets.fromLTRB(24, 10, 24, 10),
+              child: Row(
+                children: [
+                  _badge('Waiting', provider.waitingCount, const Color(0xFFD97706)),
+                  const SizedBox(width: 6),
+                  _badge('Serving', provider.servingCount, const Color(0xFF7C3AED)),
+                  const SizedBox(width: 6),
+                  _badge('Done', provider.completedCount, const Color(0xFF16A34A)),
+                  const SizedBox(width: 6),
+                  _badge('Total', provider.entries.length, const Color(0xFF2563EB)),
+                  const Spacer(),
+                  const Text(
+                    'Read-only live view · waiting & serving patients',
+                    style: TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
+                  ),
+                ],
+              ),
+            )
+          else
           Container(
             color: Colors.white,
             padding: const EdgeInsets.fromLTRB(24, 10, 24, 10),
@@ -480,41 +539,72 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
 
                 const SizedBox(width: 10),
 
-                // Waiting
-                _badge(
-                  'Waiting',
-                  provider.waitingCount,
-                  const Color(0xFFD97706),
+                // Status badges — scrollable so all 7 fit without
+                // overflowing on narrower tablet widths.
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        // Waiting
+                        _badge(
+                          'Waiting',
+                          provider.waitingCount,
+                          const Color(0xFFD97706),
+                          active: _statusFilter == 'waiting',
+                          onTap: () => setState(() {
+                            _statusFilter =
+                                _statusFilter == 'waiting' ? 'All' : 'waiting';
+                          }),
+                        ),
+
+                        const SizedBox(width: 6),
+
+                        // Called
+                        _badge(
+                          'Called',
+                          provider.called.length,
+                          const Color(0xFF0891B2),
+                          active: _statusFilter == 'called',
+                          onTap: () => setState(() {
+                            _statusFilter =
+                                _statusFilter == 'called' ? 'All' : 'called';
+                          }),
+                        ),
+
+                        const SizedBox(width: 6),
+
+                        // Serving
+                        _badge(
+                          'Serving',
+                          provider.servingCount,
+                          const Color(0xFF7C3AED),
+                          active: _statusFilter == 'serving',
+                          onTap: () => setState(() {
+                            _statusFilter =
+                                _statusFilter == 'serving' ? 'All' : 'serving';
+                          }),
+                        ),
+
+                        const SizedBox(width: 6),
+
+                        // Done
+                        _badge(
+                          'Done',
+                          provider.completedCount,
+                          const Color(0xFF16A34A),
+                          active: _statusFilter == 'done',
+                          onTap: () => setState(() {
+                            _statusFilter =
+                                _statusFilter == 'done' ? 'All' : 'done';
+                          }),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
 
-                const SizedBox(width: 6),
-
-                // Called
-                _badge(
-                  'Called',
-                  provider.called.length,
-                  const Color(0xFF0891B2),
-                ),
-
-                const SizedBox(width: 6),
-
-                // Serving
-                _badge(
-                  'Serving',
-                  provider.servingCount,
-                  const Color(0xFF7C3AED),
-                ),
-
-                const SizedBox(width: 6),
-
-                // Done
-                _badge(
-                  'Done',
-                  provider.completedCount,
-                  const Color(0xFF16A34A),
-                ),
-
-                const Spacer(),
+                const SizedBox(width: 10),
 
                 // Search
                 SizedBox(
@@ -556,22 +646,25 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
 
           const Divider(height: 1),
 
-          // ── List ───────────────────────────────────────────────────────────
+          // ── List / Live Queue ────────────────────────────────────────────
           Expanded(
             child: provider.isLoading
                 ? const Center(
                     child: CircularProgressIndicator(color: Color(0xFF2563EB)))
                 : provider.error != null
                     ? _errView(provider)
-                    : shown.isEmpty
-                        ? _emptyView()
-                        : ListView.separated(
-                            padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-                            itemCount: shown.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 8),
-                            itemBuilder: (_, i) => _card(shown[i], provider),
-                          ),
+                    : _liveView
+                        ? _liveQueueList(provider)
+                        : shown.isEmpty
+                            ? _emptyView()
+                            : ListView.separated(
+                                padding:
+                                    const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                                itemCount: shown.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(height: 8),
+                                itemBuilder: (_, i) => _card(shown[i], provider),
+                              ),
           ),
         ])),
       ]),
@@ -619,7 +712,14 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                         color: Color(0xFF111827)))),
-            if (q.isPriority) _tag('Priority', const Color(0xFFF59E0B)),
+            if (q.isPriority) ...[
+              _tag('Priority', const Color(0xFFF59E0B)),
+              const SizedBox(width: 8),
+            ],
+            // Status pill + "⋮" menu beside the name — matches
+            // Appointment Management's pattern exactly, no separate
+            // quick-action button.
+            _statusChooser(q, provider),
           ]),
           const SizedBox(height: 2),
           Text(q.serviceName,
@@ -662,95 +762,114 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis)),
         ])),
-        // Status + actions
-        Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _statusPill(q.status),
-              const SizedBox(height: 6),
-              // Primary action per status — every status that isn't a
-              // terminal one (done/cancelled) now has a way forward, so
-              // called/skipped/no_show entries no longer get stuck.
-              if (q.status == 'waiting')
-                _actionBtn('Call', const Color(0xFF0891B2),
-                    () => provider.updateStatus(q.id, 'called')),
-              if (q.status == 'called')
-                _actionBtn('Start', const Color(0xFF7C3AED),
-                    () => provider.updateStatus(q.id, 'serving')),
-              if (q.status == 'serving')
-                _actionBtn('Done', const Color(0xFF16A34A),
-                    () => provider.updateStatus(q.id, 'done')),
-              if (q.status == 'skipped' || q.status == 'no_show')
-                _actionBtn('Requeue', const Color(0xFFD97706),
-                    () => provider.updateStatus(q.id, 'waiting')),
-              const SizedBox(height: 4),
-              PopupMenuButton<String>(
-                  onSelected: (v) => provider.updateStatus(q.id, v),
-                  itemBuilder: (_) {
-                    final opts = <PopupMenuEntry<String>>[];
-                    if (q.status == 'waiting') {
-                      opts.add(const PopupMenuItem(
-                          value: 'skipped', child: Text('Skip')));
-                      opts.add(const PopupMenuItem(
-                          value: 'no_show', child: Text('No Show')));
-                      opts.add(const PopupMenuItem(
-                          value: 'cancelled', child: Text('Cancel')));
-                    }
-                    if (q.status == 'called') {
-                      opts.add(const PopupMenuItem(
-                          value: 'waiting', child: Text('Back to Waiting')));
-                      opts.add(const PopupMenuItem(
-                          value: 'no_show', child: Text('No Show')));
-                      opts.add(const PopupMenuItem(
-                          value: 'cancelled', child: Text('Cancel')));
-                    }
-                    if (q.status == 'serving') {
-                      opts.add(const PopupMenuItem(
-                          value: 'no_show', child: Text('No Show')));
-                      opts.add(const PopupMenuItem(
-                          value: 'cancelled', child: Text('Cancel')));
-                    }
-                    if (q.status == 'skipped' || q.status == 'no_show') {
-                      opts.add(const PopupMenuItem(
-                          value: 'waiting', child: Text('Requeue')));
-                      opts.add(const PopupMenuItem(
-                          value: 'cancelled', child: Text('Cancel')));
-                    }
-                    return opts;
-                  },
-                  child: const Icon(Icons.more_vert,
-                      color: Color(0xFF9CA3AF), size: 17)),
-            ]),
       ]),
     );
   }
 
-  Widget _badge(String label, int count, Color c) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-            color: c.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(99)),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Text('$count',
-              style: TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w800, color: c)),
-          const SizedBox(width: 4),
-          Text(label,
-              style: TextStyle(
-                  fontSize: 11, fontWeight: FontWeight.w600, color: c)),
-        ]),
-      );
+  // Matches Appointment Management's status UI exactly: a plain colored
+  // status pill next to a separate "⋮" menu button that lists every
+  // selectable status as plain text (see appointment_management_screen.dart
+  // _apptCard for the pattern this mirrors).
+  Widget _statusChooser(QueueModel q, QueueProvider provider) {
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      _statusPill(q.status),
+      const SizedBox(width: 6),
+      PopupMenuButton<String>(
+        tooltip: 'Change status',
+        onSelected: (val) async {
+          // updateStatus() reverts to the authoritative server state on
+          // failure — surface that clearly instead of letting the pill
+          // silently snap back with no explanation.
+          final error = await provider.updateStatus(q.id, val);
+          if (error != null && mounted) {
+            ScaffoldMessenger.of(context)
+              ..hideCurrentSnackBar()
+              ..showSnackBar(SnackBar(
+                backgroundColor: const Color(0xFFDC2626),
+                duration: const Duration(seconds: 5),
+                content: Text(
+                  _friendlyStatusError(val, error),
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ));
+          }
+        },
+        itemBuilder: (_) => _kStatuses
+            .where((s) => s != 'All')
+            .map((s) => PopupMenuItem<String>(value: s, child: Text(_sl(s))))
+            .toList(),
+        child: const Icon(Icons.more_vert, color: Color(0xFF6B7280), size: 20),
+      ),
+    ]);
+  }
 
+  // Turns a raw server error into something a staff member (who has no
+  // visibility into the backend) can actually act on. "Done" and
+  // "Cancelled" currently ALWAYS fail on this server — a bug in
+  // hq-server's QueueEntry status validation (not something the tablet
+  // app can fix, since the value that fails validation is written
+  // entirely server-side and never comes from the app's request).
+  // Everything else (e.g. the requeue restriction) is a real business
+  // rule, so that message is shown as-is.
+  String _friendlyStatusError(String targetStatus, String serverMessage) {
+    if (targetStatus == 'done' || targetStatus == 'completed') {
+      return 'Could not mark as Done — the server is rejecting this change '
+          '(known backend bug in status validation). This has NOT been '
+          'saved. Please notify your system administrator.';
+    }
+    if (targetStatus == 'cancelled') {
+      return 'Could not cancel this patient — the server is rejecting this '
+          'change (known backend bug in status validation). This has NOT '
+          'been saved. Please notify your system administrator.';
+    }
+    return serverMessage;
+  }
+
+  // Tappable status badge — used as a quick filter shortcut next to the
+  // status dropdown. Shows the count beside the label, and highlights with
+  // a colored border/background when it's the active filter.
+  Widget _badge(String label, int count, Color c,
+      {VoidCallback? onTap, bool active = false}) {
+    final child = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: c.withValues(alpha: active ? 0.16 : 0.08),
+        borderRadius: BorderRadius.circular(99),
+        border: active ? Border.all(color: c, width: 1.3) : null,
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Text('$count',
+            style: TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w800, color: c)),
+        const SizedBox(width: 4),
+        Text(label,
+            style: TextStyle(
+                fontSize: 11,
+                fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                color: c)),
+      ]),
+    );
+
+    if (onTap == null) return child;
+
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: child,
+    );
+  }
+
+  // Matches the status pill styling in appointment_management_screen.dart
+  // _apptCard exactly (padding/alpha/radius) for visual consistency.
   Widget _statusPill(String s) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
             color: _sc(s).withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(99),
-            border: Border.all(color: _sc(s).withValues(alpha: 0.25))),
+            border: Border.all(color: _sc(s).withValues(alpha: 0.3))),
         child: Text(_sl(s),
             style: TextStyle(
-                fontSize: 10, fontWeight: FontWeight.w700, color: _sc(s))),
+                fontSize: 11, fontWeight: FontWeight.w700, color: _sc(s))),
       );
 
   Widget _tag(String t, Color c) => Container(
@@ -761,17 +880,109 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
           style:
               TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: c)));
 
-  Widget _actionBtn(String lbl, Color c, VoidCallback fn) => GestureDetector(
-      onTap: fn,
+  // ── Live Queue view ─────────────────────────────────────────────────────
+  // Read-only view of today's waiting + serving patients, migrated in from
+  // the old standalone Queue Monitoring screen.
+  Widget _liveQueueList(QueueProvider provider) {
+    final active = provider.entries
+        .where((q) => q.status == 'waiting' || q.status == 'serving')
+        .toList();
+
+    if (active.isEmpty) {
+      return const Center(
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(Icons.check_circle_outline, size: 52, color: Color(0xFFD1D5DB)),
+          SizedBox(height: 12),
+          Text('No active patients in queue',
+              style: TextStyle(fontSize: 15, color: Color(0xFF9CA3AF))),
+        ]),
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+      itemCount: active.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (_, i) => _liveCard(active[i]),
+    );
+  }
+
+  Widget _liveCard(QueueModel q) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: q.status == 'serving'
+            ? Border.all(color: const Color(0xFF7C3AED).withValues(alpha: 0.4), width: 1.5)
+            : null,
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 6)],
+      ),
+      child: Row(children: [
+        Container(
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+            color: _sc(q.status).withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Center(
+            child: Text(q.queueNumber,
+                style: TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w900, color: _sc(q.status))),
+          ),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(q.patientName,
+                style: const TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF111827))),
+            const SizedBox(height: 2),
+            Text(q.serviceName, style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+            const SizedBox(height: 2),
+            Row(children: [
+              const Icon(Icons.access_time_outlined, size: 11, color: Color(0xFF9CA3AF)),
+              const SizedBox(width: 3),
+              Text('Joined ${q.joinedAt}', style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
+              if (q.estimatedWaitMinutes > 0) ...[
+                const SizedBox(width: 8),
+                Text('~${q.estimatedWaitMinutes} min wait',
+                    style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280))),
+              ],
+            ]),
+          ]),
+        ),
+        _statusPill(q.status),
+      ]),
+    );
+  }
+
+  Widget _viewToggleBtn(String label, bool active, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
       child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
-          decoration:
-              BoxDecoration(color: c, borderRadius: BorderRadius.circular(7)),
-          child: Text(lbl,
-              style: const TextStyle(
-                  fontSize: 11,
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700))));
+        height: 30,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: active ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(7),
+          boxShadow: active
+              ? [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 3)]
+              : null,
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+            color: active ? const Color(0xFF2563EB) : const Color(0xFF6B7280),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _emptyView() => const Center(
           child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [

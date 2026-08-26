@@ -49,7 +49,15 @@ class QueueModel {
       patientType:          j['patientType']?.toString() ?? 'Regular',
       serviceName:          j['serviceName']?.toString() ?? '',
       queueType:            j['queueType']?.toString() ?? 'Regular',
-      status:               j['status']?.toString() ?? 'waiting',
+      // The server's QueueEntry schema currently mixes casing — brand-new
+      // entries default to 'Waiting' (capital W), while status changes
+      // (call/start/skip/no-show/requeue) write lowercase directly. Since
+      // this app treats status as its case-sensitive canonical lowercase
+      // form everywhere (filtering, colors, labels, the status menu),
+      // normalize here once so a freshly-created "Waiting" entry displays
+      // and filters correctly instead of silently falling through to a
+      // default/unmatched state until its first transition.
+      status: (j['status']?.toString() ?? 'waiting').toLowerCase(),
       joinedAt:             _toManilaTime(raw),
       joinedAtRaw:          raw,
       isPriority:           j['priority'] == true || j['queueType'] == 'Priority',

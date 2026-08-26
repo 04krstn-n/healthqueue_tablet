@@ -18,7 +18,22 @@ class StaffApiService {
   static Future<void> saveToken(String token) => _client.saveToken(token);
   static Future<String?> getToken() => _client.getToken();
   static Future<void> deleteToken() => _client.deleteToken();
-  static Future<void> logout() => _client.deleteToken();
+
+  // POST /auth/logout — for staff/facility_admin/super_admin the server
+  // writes an audit-log entry for this (see authController.logout). This
+  // used to just clear the local token, so tablet logouts never showed up
+  // in the facility/super-admin Audit Log pages. The call is best-effort:
+  // if it fails (e.g. no connection), we still clear the local session so
+  // the user isn't stuck logged in on the device.
+  static Future<void> logout() async {
+    try {
+      await _client.post('/auth/logout');
+    } catch (_) {
+      // Ignore — local logout must still proceed.
+    } finally {
+      await _client.deleteToken();
+    }
+  }
 
   // ─── Auth — POST /auth/login, GET /auth/me ─────────────────
   static Future<Map<String, dynamic>> login(String email, String password) async {
@@ -155,6 +170,21 @@ class StaffApiService {
   static Future<List<dynamic>> getChatLogs({String? clinicId}) async {
     final res = await _client.get('/chatbot-admin/logs',
         query: clinicId == null ? null : {'clinicId': clinicId});
+    return (ApiClient.unwrap(res) as List<dynamic>?) ?? const [];
+  }
+
+  // getEscalatedLogs -> GET /chatbot-admin/escalated: { success, data: [...] }
+  // Purpose-built for the staff inquiries inbox — unlike getChatLogs (which
+  // returns the last 100 messages of ANY kind, escalated or not), this only
+  // returns escalations, sorted by escalatedAt, and populates the assigned
+  // staff member. Using getChatLogs here meant a busy clinic's older
+  // unresolved escalations could silently fall off the 100-message cap
+  // before staff ever saw them.
+  static Future<List<dynamic>> getEscalatedLogs({String? clinicId, bool? resolved}) async {
+    final res = await _client.get('/chatbot-admin/escalated', query: {
+      if (clinicId != null) 'clinicId': clinicId,
+      if (resolved != null) 'resolved': resolved.toString(),
+    });
     return (ApiClient.unwrap(res) as List<dynamic>?) ?? const [];
   }
 

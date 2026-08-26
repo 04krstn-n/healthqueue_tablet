@@ -112,14 +112,6 @@ class StaffSidebar extends StatelessWidget {
                     isActive: currentRoute == AppRoutes.queueManagement,
                   ),
 
-                  // PATIENT ASSISTANCE
-                  _SidebarItem(
-                    label: 'Patient Assistance',
-                    icon: Icons.help_outline_rounded,
-                    route: AppRoutes.patientAssistance,
-                    isActive: currentRoute == AppRoutes.patientAssistance,
-                  ),
-
                   // SERVICE SCHEDULE
                   _SidebarItem(
                     label: 'Service Schedule',

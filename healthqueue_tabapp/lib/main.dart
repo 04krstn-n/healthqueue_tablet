@@ -10,7 +10,6 @@ import 'providers/dashboard_provider.dart';
 import 'providers/queue_provider.dart';
 import 'providers/inquiry_provider.dart';
 import 'providers/schedule_provider.dart';
-import 'providers/assistance_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,9 +44,6 @@ Future<void> main() async {
         ),
         ChangeNotifierProvider(
           create: (_) => ScheduleProvider(),
-        ),
-        ChangeNotifierProvider(
-          create: (_) => AssistanceProvider(),
         ),
       ],
       child: const HealthQueueStaffApp(),
