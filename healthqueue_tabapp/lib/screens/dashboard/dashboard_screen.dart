@@ -4,6 +4,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/dashboard_provider.dart';
 import '../../providers/queue_provider.dart';
 import '../../providers/schedule_provider.dart';
+import '../../providers/inquiry_provider.dart';
 import '../../widgets/sidebar/staff_sidebar.dart';
 
 class StaffDashboardScreen extends StatefulWidget {
@@ -22,6 +23,13 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         context.read<DashboardProvider>().setClinicId(clinicId);
         context.read<QueueProvider>().setClinicId(clinicId);
         context.read<ScheduleProvider>().setClinicId(clinicId);
+        // Connects the escalation socket + establishes the "already seen"
+        // baseline right after login, so the sidebar badge and floating
+        // alert (see main.dart) work regardless of which screen staff are
+        // on — previously this only ever ran when the Inquiry screen
+        // itself was opened, so escalations that arrived before that had
+        // no way to surface anywhere.
+        context.read<InquiryProvider>().loadInquiries(clinicId: clinicId);
       }
     });
   }

@@ -495,30 +495,44 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
             padding: const EdgeInsets.fromLTRB(24, 10, 24, 10),
             child: Row(
               children: [
-                // Status filter dropdown
+                // Status filter dropdown — colored to match the selected
+                // category so it's visually clear at a glance. Previously a
+                // separate row of tappable "pills" duplicated this same
+                // dropdown's job (both set _statusFilter); the pills have
+                // been removed and the dropdown itself now carries the
+                // color cue they used to provide.
                 Container(
                   height: 36,
                   padding: const EdgeInsets.symmetric(horizontal: 10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF3F4F6),
+                    color: _statusFilter == 'All'
+                        ? const Color(0xFFF3F4F6)
+                        : _sc(_statusFilter).withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(9),
                     border: Border.all(
-                      color: const Color(0xFFE5E7EB),
+                      color: _statusFilter == 'All'
+                          ? const Color(0xFFE5E7EB)
+                          : _sc(_statusFilter).withValues(alpha: 0.4),
+                      width: _statusFilter == 'All' ? 1 : 1.3,
                     ),
                   ),
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<String>(
                       value: _statusFilter,
                       isDense: true,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color: Color(0xFF374151),
+                        color: _statusFilter == 'All'
+                            ? const Color(0xFF374151)
+                            : _sc(_statusFilter),
                       ),
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.expand_more,
                         size: 16,
-                        color: Color(0xFF6B7280),
+                        color: _statusFilter == 'All'
+                            ? const Color(0xFF6B7280)
+                            : _sc(_statusFilter),
                       ),
                       items: _kStatuses.map((s) {
                         return DropdownMenuItem(
@@ -533,73 +547,6 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
                           _statusFilter = v ?? 'All';
                         });
                       },
-                    ),
-                  ),
-                ),
-
-                const SizedBox(width: 10),
-
-                // Status badges — scrollable so all 7 fit without
-                // overflowing on narrower tablet widths.
-                Expanded(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        // Waiting
-                        _badge(
-                          'Waiting',
-                          provider.waitingCount,
-                          const Color(0xFFD97706),
-                          active: _statusFilter == 'waiting',
-                          onTap: () => setState(() {
-                            _statusFilter =
-                                _statusFilter == 'waiting' ? 'All' : 'waiting';
-                          }),
-                        ),
-
-                        const SizedBox(width: 6),
-
-                        // Called
-                        _badge(
-                          'Called',
-                          provider.called.length,
-                          const Color(0xFF0891B2),
-                          active: _statusFilter == 'called',
-                          onTap: () => setState(() {
-                            _statusFilter =
-                                _statusFilter == 'called' ? 'All' : 'called';
-                          }),
-                        ),
-
-                        const SizedBox(width: 6),
-
-                        // Serving
-                        _badge(
-                          'Serving',
-                          provider.servingCount,
-                          const Color(0xFF7C3AED),
-                          active: _statusFilter == 'serving',
-                          onTap: () => setState(() {
-                            _statusFilter =
-                                _statusFilter == 'serving' ? 'All' : 'serving';
-                          }),
-                        ),
-
-                        const SizedBox(width: 6),
-
-                        // Done
-                        _badge(
-                          'Done',
-                          provider.completedCount,
-                          const Color(0xFF16A34A),
-                          active: _statusFilter == 'done',
-                          onTap: () => setState(() {
-                            _statusFilter =
-                                _statusFilter == 'done' ? 'All' : 'done';
-                          }),
-                        ),
-                      ],
                     ),
                   ),
                 ),
@@ -716,6 +663,10 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
               _tag('Priority', const Color(0xFFF59E0B)),
               const SizedBox(width: 8),
             ],
+            if (provider.isOnTheWay(q.id)) ...[
+              _tag('On the way', const Color(0xFF0891B2)),
+              const SizedBox(width: 8),
+            ],
             // Status pill + "⋮" menu beside the name — matches
             // Appointment Management's pattern exactly, no separate
             // quick-action button.
@@ -748,7 +699,7 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
           if (q.estimatedWaitMinutes > 0)
             Padding(
                 padding: const EdgeInsets.only(top: 3),
-                child: Text('~${q.estimatedWaitMinutes} min estimated',
+                child: Text('${q.estimatedWaitMinutes} min estimated',
                     style: const TextStyle(
                         fontSize: 11, color: Color(0xFF6B7280)))),
           if (q.notes.isNotEmpty)
@@ -770,36 +721,63 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
   // status pill next to a separate "⋮" menu button that lists every
   // selectable status as plain text (see appointment_management_screen.dart
   // _apptCard for the pattern this mirrors).
+  // Only offer transitions the server will actually accept — see the
+  // matching guards in queueController.js (callPatient/startService/
+  // completePatient/markNoShow/requeueEntry). Previously this menu always
+  // listed every status regardless of the entry's current one, relying
+  // entirely on the server to silently reject invalid picks; the backend
+  // guard is still the real enforcement (this list can't be trusted alone —
+  // a direct API call bypasses it), but showing only valid next steps here
+  // avoids staff hitting a rejection for an action that should never have
+  // been offered in the first place.
+  List<String> _validNextStatuses(String current) {
+    switch (current) {
+      case 'waiting':
+        return ['called', 'cancelled'];
+      case 'called':
+        return ['serving', 'no_show', 'cancelled'];
+      case 'serving':
+        return ['done'];
+      case 'skipped':
+      case 'no_show':
+        return ['waiting'];
+      default:
+        return const []; // done/completed/cancelled are terminal
+    }
+  }
+
   Widget _statusChooser(QueueModel q, QueueProvider provider) {
+    final nextOptions = _validNextStatuses(q.status);
     return Row(mainAxisSize: MainAxisSize.min, children: [
       _statusPill(q.status),
-      const SizedBox(width: 6),
-      PopupMenuButton<String>(
-        tooltip: 'Change status',
-        onSelected: (val) async {
-          // updateStatus() reverts to the authoritative server state on
-          // failure — surface that clearly instead of letting the pill
-          // silently snap back with no explanation.
-          final error = await provider.updateStatus(q.id, val);
-          if (error != null && mounted) {
-            ScaffoldMessenger.of(context)
-              ..hideCurrentSnackBar()
-              ..showSnackBar(SnackBar(
-                backgroundColor: const Color(0xFFDC2626),
-                duration: const Duration(seconds: 5),
-                content: Text(
-                  _friendlyStatusError(val, error),
-                  style: const TextStyle(color: Colors.white),
-                ),
-              ));
-          }
-        },
-        itemBuilder: (_) => _kStatuses
-            .where((s) => s != 'All')
-            .map((s) => PopupMenuItem<String>(value: s, child: Text(_sl(s))))
-            .toList(),
-        child: const Icon(Icons.more_vert, color: Color(0xFF6B7280), size: 20),
-      ),
+      if (nextOptions.isNotEmpty) ...[
+        const SizedBox(width: 6),
+        PopupMenuButton<String>(
+          tooltip: 'Change status',
+          onSelected: (val) async {
+            // updateStatus() reverts to the authoritative server state on
+            // failure — surface that clearly instead of letting the pill
+            // silently snap back with no explanation.
+            final error = await provider.updateStatus(q.id, val);
+            if (error != null && mounted) {
+              ScaffoldMessenger.of(context)
+                ..hideCurrentSnackBar()
+                ..showSnackBar(SnackBar(
+                  backgroundColor: const Color(0xFFDC2626),
+                  duration: const Duration(seconds: 5),
+                  content: Text(
+                    _friendlyStatusError(val, error),
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ));
+            }
+          },
+          itemBuilder: (_) => nextOptions
+              .map((s) => PopupMenuItem<String>(value: s, child: Text(_sl(s))))
+              .toList(),
+          child: const Icon(Icons.more_vert, color: Color(0xFF6B7280), size: 20),
+        ),
+      ],
     ]);
   }
 
@@ -947,7 +925,7 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
               Text('Joined ${q.joinedAt}', style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
               if (q.estimatedWaitMinutes > 0) ...[
                 const SizedBox(width: 8),
-                Text('~${q.estimatedWaitMinutes} min wait',
+                Text('${q.estimatedWaitMinutes} min wait',
                     style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280))),
               ],
             ]),

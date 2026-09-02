@@ -119,19 +119,29 @@ class ApiClient {
 
   dynamic _processResponse(http.Response res) {
     dynamic body;
+    bool parsedOk = true;
     try {
       body = res.body.isNotEmpty ? jsonDecode(res.body) : <String, dynamic>{};
     } catch (_) {
-      body = {'message': res.body};
+      // The server returned something that isn't JSON — almost always an
+      // HTML error page (a 404 "Cannot GET ..." page when a route isn't
+      // actually deployed yet, or a framework-level 500 page). This used
+      // to wrap the raw HTML itself into {'message': res.body} and throw
+      // that as the exception message, which meant the app would render
+      // the literal HTML source on screen instead of a real error. Fall
+      // back to a clean, generic message instead — the status code alone
+      // is still useful for debugging.
+      parsedOk = false;
+      body = <String, dynamic>{};
     }
 
     if (res.statusCode >= 200 && res.statusCode < 300) {
       return body;
     }
 
-    final message = (body is Map && body['message'] != null)
+    final message = (parsedOk && body is Map && body['message'] != null)
         ? body['message'].toString()
-        : 'Request failed (HTTP ${res.statusCode})';
+        : 'Request failed (HTTP ${res.statusCode}). The server may need to be updated or redeployed.';
     throw StaffApiException(message, statusCode: res.statusCode);
   }
 

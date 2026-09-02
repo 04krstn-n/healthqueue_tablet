@@ -26,6 +26,7 @@ class ClinicSocketService {
     'walkin_added',
     'queue_requeued',
     'global_queue_change',
+    'patient_on_the_way',
   ];
 
   IO.Socket? _socket;
@@ -37,13 +38,27 @@ class ClinicSocketService {
   /// [eventNames] lets other providers (e.g. inquiries) reuse this same
   /// socket wrapper to listen for a different set of server-emitted events
   /// instead of the queue-specific ones.
+  ///
+  /// [namedListeners] registers additional per-event callbacks alongside
+  /// the generic [onQueueUpdated] — for events a caller needs to react to
+  /// distinctly (e.g. showing a specific alert) rather than just triggering
+  /// the same generic refresh as everything else.
   Future<void> connect(
     String clinicId, {
     void Function(dynamic data)? onQueueUpdated,
     void Function()? onConnected,
     void Function()? onDisconnected,
     List<String>? eventNames,
+    Map<String, void Function(dynamic data)>? namedListeners,
   }) async {
+    // Dispose any existing connection first — this used to overwrite
+    // `_socket` directly, leaking the previous connection (never
+    // disconnected) whenever connect() was called a second time on the
+    // same instance (e.g. a reconnect, or the clinic changing). That meant
+    // two live sockets could end up listening and firing the same events
+    // twice each.
+    _socket?.dispose();
+
     final token = await ApiClient.instance.getToken();
 
     _socket = IO.io(
@@ -63,6 +78,10 @@ class ClinicSocketService {
     for (final event in (eventNames ?? _queueEventNames)) {
       _socket!.on(event, (data) => onQueueUpdated?.call(data));
     }
+
+    namedListeners?.forEach((event, handler) {
+      _socket!.on(event, handler);
+    });
 
     _socket!
       ..onDisconnect((_) => onDisconnected?.call())

@@ -129,7 +129,7 @@ class _QueueMonitoringScreenState extends State<QueueMonitoringScreen> {
                               Text('Joined ${q.joinedAt}', style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
                               if (q.estimatedWaitMinutes > 0) ...[
                                 const SizedBox(width: 8),
-                                Text('~${q.estimatedWaitMinutes} min wait',
+                                Text('${q.estimatedWaitMinutes} min wait',
                                   style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280))),
                               ],
                             ]),

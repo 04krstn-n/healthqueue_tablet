@@ -18,6 +18,27 @@ class InquiryProvider extends ChangeNotifier {
   String? _clinicId;
   final ClinicSocketService _socket = ClinicSocketService();
 
+  // Tracks which unresolved escalation ids we've already seen, so a new
+  // one can be detected without ever double-firing for the same
+  // escalation across repeated socket pushes/reloads. Set on the very
+  // first load (so opening the app with existing unresolved escalations
+  // doesn't immediately alert for all of them) — only escalations that
+  // arrive AFTER that baseline trigger the floating alert.
+  Set<String>? _knownUnresolvedIds;
+
+  // One-shot signal for the app-wide floating alert (see main.dart) —
+  // set the instant a genuinely new unresolved escalation is detected,
+  // cleared by the UI via dismissEscalationAlert() once shown.
+  InquiryModel? _pendingAlert;
+  InquiryModel? get pendingAlert => _pendingAlert;
+  void dismissEscalationAlert() {
+    _pendingAlert = null;
+    notifyListeners();
+  }
+
+  int get unresolvedEscalationCount =>
+      _escalated.where((i) => !i.resolvedByStaff).length;
+
   List<InquiryModel> get inquiries {
     if (_query.isEmpty) return _inquiries;
     final q = _query.toLowerCase();
@@ -68,6 +89,23 @@ class InquiryProvider extends ChangeNotifier {
           .map((e) => InquiryModel.fromJson(e as Map<String, dynamic>))
           .toList()
         ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+      // Detect newly-arrived unresolved escalations for the floating alert.
+      final unresolvedNow = _escalated.where((i) => !i.resolvedByStaff);
+      final currentIds = unresolvedNow.map((i) => i.id).toSet();
+      if (_knownUnresolvedIds == null) {
+        // First load this session — establish the baseline without
+        // alerting for anything that was already sitting there.
+        _knownUnresolvedIds = currentIds;
+      } else {
+        final newIds = currentIds.difference(_knownUnresolvedIds!);
+        if (newIds.isNotEmpty) {
+          // Most recent of the newly-arrived ones, since _escalated is
+          // already sorted newest-first.
+          _pendingAlert = unresolvedNow.firstWhere((i) => newIds.contains(i.id));
+        }
+        _knownUnresolvedIds = currentIds;
+      }
     } on StaffApiException catch (e) {
       _error = e.message;
     } catch (_) {
@@ -93,6 +131,9 @@ class InquiryProvider extends ChangeNotifier {
       if (idx >= 0) _inquiries[idx] = resolve(_inquiries[idx]);
       final eIdx = _escalated.indexWhere((i) => i.id == id);
       if (eIdx >= 0) _escalated[eIdx] = resolve(_escalated[eIdx]);
+      // So a future re-escalation of this same chat log is treated as new
+      // rather than being silently suppressed as "already seen".
+      _knownUnresolvedIds?.remove(id);
       notifyListeners();
     } on StaffApiException catch (e) {
       _error = e.message; notifyListeners();
@@ -100,6 +141,26 @@ class InquiryProvider extends ChangeNotifier {
   }
 
   void search(String q) { _query = q; notifyListeners(); }
+
+  // Permanently clears this clinic's chat logs. The confirmation dialog
+  // lives in the screen (see patient_inquiry_screen.dart _confirmClearLogs)
+  // — this only performs the actual clear once the user has confirmed.
+  Future<bool> clearLogs() async {
+    try {
+      await StaffApiService.clearChatLogs();
+      _inquiries = [];
+      _escalated = [];
+      _knownUnresolvedIds = {};
+      notifyListeners();
+      return true;
+    } on StaffApiException catch (e) {
+      _error = e.message; notifyListeners();
+      return false;
+    } catch (_) {
+      _error = 'Failed to clear chat logs.'; notifyListeners();
+      return false;
+    }
+  }
 
   @override
   void dispose() {

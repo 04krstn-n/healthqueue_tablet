@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/inquiry_provider.dart';
+import '../../providers/patient_type_request_provider.dart';
 import '../../models/inquiry_model.dart';
+import '../../services/api_service.dart';
 import '../../widgets/sidebar/staff_sidebar.dart';
 
 class PatientInquiryScreen extends StatefulWidget {
@@ -13,7 +15,7 @@ class PatientInquiryScreen extends StatefulWidget {
 
 class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
   final _searchCtrl = TextEditingController();
-  int _tabIndex = 0; // 0 = All Logs, 1 = Escalated (needs attention)
+  int _tabIndex = 0; // 0 = All Logs, 1 = Escalated (needs attention), 2 = Type Requests
 
   @override
   void initState() {
@@ -21,6 +23,9 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final clinicId = context.read<AuthProvider>().staff?.clinicId;
       context.read<InquiryProvider>().loadInquiries(clinicId: clinicId);
+      // Loaded eagerly (not just when the tab is clicked) so the tab's
+      // pending-count badge is accurate the moment this screen opens.
+      context.read<PatientTypeRequestProvider>().load();
     });
   }
 
@@ -170,6 +175,21 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
                       ),
                       tooltip: 'Refresh',
                     ),
+
+                    // Clear chat logs — restricted server-side to
+                    // facility_admin/super_admin (this is a permanent bulk
+                    // delete), so it's hidden for plain staff rather than
+                    // shown and then rejected with a confusing error.
+                    if (auth.staff?.role == 'facility_admin' ||
+                        auth.staff?.role == 'super_admin')
+                      IconButton(
+                        onPressed: () => _confirmClearLogs(provider),
+                        icon: const Icon(
+                          Icons.delete_outline_rounded,
+                          color: Color(0xFFDC2626),
+                        ),
+                        tooltip: 'Clear chat logs',
+                      ),
                   ],
                 ),
 
@@ -190,6 +210,15 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
                       Icons.priority_high_rounded,
                       urgent: unresolved > 0,
                     ),
+                    const SizedBox(width: 6),
+                    Consumer<PatientTypeRequestProvider>(
+                      builder: (_, typeReqProvider, __) => _tabBtn(
+                        2,
+                        'Type Requests (${typeReqProvider.pendingCount})',
+                        Icons.badge_outlined,
+                        urgent: typeReqProvider.pendingCount > 0,
+                      ),
+                    ),
                   ],
                 ),
               ],
@@ -198,14 +227,16 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
 
           // ── Content ───────────────────────────────────────────────────────
           Expanded(
-            child: provider.isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(color: Color(0xFF7C3AED)))
-                : provider.error != null
-                    ? _errorState(provider)
-                    : _tabIndex == 0
-                        ? _logsList(provider.inquiries)
-                        : _escalatedList(escalated, provider),
+            child: _tabIndex == 2
+                ? _typeRequestsTab()
+                : provider.isLoading
+                    ? const Center(
+                        child: CircularProgressIndicator(color: Color(0xFF7C3AED)))
+                    : provider.error != null
+                        ? _errorState(provider)
+                        : _tabIndex == 0
+                            ? _logsList(provider.inquiries)
+                            : _escalatedList(escalated, provider),
           ),
         ])),
       ]),
@@ -386,6 +417,246 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
     );
   }
 
+  // ── Type Requests tab ────────────────────────────────────────────────────
+  // Staff review of patient-submitted Senior Citizen/PWD/Pregnant
+  // verification requests (see PatientTypeRequestProvider). Separate
+  // provider/data domain from chat inquiries — this screen just hosts both
+  // as tabs per the agreed placement.
+  Widget _typeRequestsTab() {
+    return Consumer<PatientTypeRequestProvider>(
+      builder: (_, provider, __) {
+        if (provider.isLoading && provider.requests.isEmpty) {
+          return const Center(child: CircularProgressIndicator(color: Color(0xFF7C3AED)));
+        }
+        if (provider.error != null && provider.requests.isEmpty) {
+          return Center(
+              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            const Icon(Icons.error_outline, size: 40, color: Colors.red),
+            const SizedBox(height: 10),
+            Text(provider.error!, style: const TextStyle(fontSize: 14, color: Colors.red)),
+            const SizedBox(height: 12),
+            ElevatedButton(
+                onPressed: () => provider.load(force: true), child: const Text('Retry')),
+          ]));
+        }
+
+        final pending = provider.requests.where((r) => r['status'] == 'pending').toList();
+        final resolved = provider.requests.where((r) => r['status'] != 'pending').toList();
+        final all = [...pending, ...resolved];
+
+        if (all.isEmpty) {
+          return const Center(
+              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Icon(Icons.badge_outlined, size: 44, color: Color(0xFFD1D5DB)),
+            SizedBox(height: 10),
+            Text('No account type requests',
+                style: TextStyle(fontSize: 14, color: Color(0xFF9CA3AF))),
+          ]));
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+          itemCount: all.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 8),
+          itemBuilder: (_, i) => _typeRequestCard(all[i], provider),
+        );
+      },
+    );
+  }
+
+  Widget _typeRequestCard(Map<String, dynamic> req, PatientTypeRequestProvider provider) {
+    final id = req['_id']?.toString() ?? '';
+    final status = req['status']?.toString() ?? 'pending';
+    final requestedType = req['requestedType']?.toString() ?? '';
+    final patient = req['patient'];
+    final patientName = (patient is Map ? patient['fullName'] : null)?.toString() ?? 'Patient';
+    final createdAt = req['createdAt']?.toString() ?? '';
+    final reviewNote = req['reviewNote']?.toString() ?? '';
+    final isPending = status == 'pending';
+
+    final statusColor = status == 'approved'
+        ? const Color(0xFF16A34A)
+        : status == 'rejected'
+            ? const Color(0xFFDC2626)
+            : const Color(0xFFF97316);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: statusColor.withValues(alpha: 0.3), width: 1.5),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 5)],
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(
+              status == 'approved'
+                  ? Icons.check_circle_rounded
+                  : status == 'rejected'
+                      ? Icons.cancel_rounded
+                      : Icons.hourglass_top_rounded,
+              size: 16,
+              color: statusColor),
+          const SizedBox(width: 8),
+          Expanded(
+              child: Text(patientName,
+                  style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF111827)))),
+          Text(createdAt.isNotEmpty ? createdAt.split('T').first : '',
+              style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
+        ]),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: statusColor.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(99),
+          ),
+          child: Text('Requesting: $requestedType',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: statusColor)),
+        ),
+        if (reviewNote.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          _bubble('Note: $reviewNote', const Color(0xFFF3F4F6), Icons.notes_rounded,
+              const Color(0xFF6B7280)),
+        ],
+        const SizedBox(height: 12),
+        Row(children: [
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: () => _viewIdPhoto(id),
+              icon: const Icon(Icons.image_outlined, size: 15),
+              label: const Text('View Photo'),
+              style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 10)),
+            ),
+          ),
+          if (isPending) ...[
+            const SizedBox(width: 8),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: () => _reviewTypeRequest(id, provider, approve: true),
+                icon: const Icon(Icons.check_rounded, size: 15),
+                label: const Text('Approve'),
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF16A34A),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9))),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _reviewTypeRequest(id, provider, approve: false),
+                icon: const Icon(Icons.close_rounded, size: 15),
+                label: const Text('Reject'),
+                style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFDC2626),
+                    side: const BorderSide(color: Color(0xFFDC2626)),
+                    padding: const EdgeInsets.symmetric(vertical: 10)),
+              ),
+            ),
+          ],
+        ]),
+      ]),
+    );
+  }
+
+  void _viewIdPhoto(String requestId) {
+    showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        child: FutureBuilder<Map<String, String>>(
+          future: StaffApiService.photoAuthHeaders(),
+          builder: (ctx, snap) {
+            if (!snap.hasData) {
+              return const Padding(
+                padding: EdgeInsets.all(40),
+                child: CircularProgressIndicator(),
+              );
+            }
+            return Column(mainAxisSize: MainAxisSize.min, children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 500, maxWidth: 500),
+                child: Image.network(
+                  StaffApiService.patientTypeRequestPhotoUri(requestId).toString(),
+                  headers: snap.data,
+                  fit: BoxFit.contain,
+                  loadingBuilder: (c, child, progress) => progress == null
+                      ? child
+                      : const Padding(
+                          padding: EdgeInsets.all(40),
+                          child: CircularProgressIndicator(),
+                        ),
+                  errorBuilder: (c, e, s) => const Padding(
+                    padding: EdgeInsets.all(40),
+                    child: Text('Could not load photo.'),
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ]);
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _reviewTypeRequest(
+      String id, PatientTypeRequestProvider provider,
+      {required bool approve}) async {
+    final noteCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(approve ? 'Approve Request?' : 'Reject Request?',
+            style: const TextStyle(fontWeight: FontWeight.w800)),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(approve
+              ? 'This will update the patient\'s account type.'
+              : 'The patient will see your note explaining why.'),
+          const SizedBox(height: 12),
+          TextField(
+            controller: noteCtrl,
+            decoration: InputDecoration(
+              hintText: approve ? 'Note (optional)' : 'Reason for rejection',
+              border: const OutlineInputBorder(),
+            ),
+            maxLines: 2,
+          ),
+        ]),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: approve ? const Color(0xFF16A34A) : const Color(0xFFDC2626),
+                foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(approve ? 'Approve' : 'Reject'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final error = approve
+        ? await provider.approve(id, note: noteCtrl.text.trim())
+        : await provider.reject(id, note: noteCtrl.text.trim());
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        backgroundColor: error == null ? const Color(0xFF16A34A) : const Color(0xFFDC2626),
+        content: Text(error ?? (approve ? 'Request approved.' : 'Request rejected.')),
+      ));
+  }
+
   // The only channel the backend exposes for staff to respond to an
   // escalated conversation is PUT /chatbot/resolve/:id, which saves a
   // "resolvedNote" and marks the inquiry resolved in the same call — there
@@ -394,6 +665,53 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
   // reply through that note field, which is the actual channel that
   // reaches the patient's side; it's presented as "Reply" since that's
   // what it does, but note it always resolves the inquiry at the same time.
+  // Clear chat logs — confirms before calling the permanent, irreversible
+  // backend delete (see InquiryProvider.clearLogs / DELETE
+  // /chatbot-admin/logs). The confirmation happens here in the UI; the
+  // actual restriction (facility_admin/super_admin only) is enforced by
+  // the server, not by this dialog or the button's visibility alone.
+  Future<void> _confirmClearLogs(InquiryProvider provider) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Clear Chat Logs?',
+            style: TextStyle(fontWeight: FontWeight.w800)),
+        content: const Text(
+          'This will permanently delete all chatbot conversation logs for '
+          'this clinic, including escalated concerns. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Clear Logs'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final ok = await provider.clearLogs();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        backgroundColor: ok ? const Color(0xFF16A34A) : const Color(0xFFDC2626),
+        content: Text(ok
+            ? 'Chat logs cleared.'
+            : (provider.error ?? 'Failed to clear chat logs.')),
+      ));
+  }
+
   void _replyDialog(InquiryModel inq, InquiryProvider provider) {
     final replyCtrl = TextEditingController();
     showDialog(
@@ -488,7 +806,10 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
   Widget _tabBtn(int idx, String label, IconData icon, {bool urgent = false}) {
     final active = _tabIndex == idx;
     return GestureDetector(
-      onTap: () => setState(() => _tabIndex = idx),
+      onTap: () {
+        setState(() => _tabIndex = idx);
+        if (idx == 2) context.read<PatientTypeRequestProvider>().load();
+      },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(

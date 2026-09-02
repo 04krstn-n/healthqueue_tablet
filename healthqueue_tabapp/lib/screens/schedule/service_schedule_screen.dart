@@ -169,7 +169,7 @@ class _ServiceScheduleScreenState extends State<ServiceScheduleScreen> {
             Row(children: [
               const Icon(Icons.timer_outlined, size: 13, color: Color(0xFF9CA3AF)),
               const SizedBox(width: 4),
-              Text('~$duration min per patient',
+              Text('$duration min per patient',
                   style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
             ]),
           ]),

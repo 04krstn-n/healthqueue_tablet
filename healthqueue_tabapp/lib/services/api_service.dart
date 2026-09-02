@@ -1,5 +1,6 @@
 import '../core/network/api_client.dart';
 import '../core/network/api_exceptions.dart';
+import '../config/api_config.dart';
 
 export '../core/network/api_exceptions.dart' show StaffApiException, ApiException;
 
@@ -139,6 +140,25 @@ class StaffApiService {
     return (ApiClient.unwrap(res) as List<dynamic>?) ?? const [];
   }
 
+  // getUpcomingAppointments -> GET /appointments?clinicId=&dateFrom=&dateTo=
+  // Lets staff see today plus the next few days (not just /appointments/today)
+  // so they can confirm/prep upcoming appointments in advance rather than
+  // only ever seeing the current day. dateFrom/dateTo are 'YYYY-MM-DD'.
+  static Future<List<dynamic>> getUpcomingAppointments({
+    required String clinicId,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    String fmt(DateTime d) =>
+        '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    final res = await _client.get('/appointments', query: {
+      'clinicId': clinicId,
+      'dateFrom': fmt(from),
+      'dateTo': fmt(to),
+    });
+    return (ApiClient.unwrap(res) as List<dynamic>?) ?? const [];
+  }
+
   static Future<void> updateAppointmentStatus(String id, String status) =>
       _client.put('/appointments/$id/status', body: {'status': status});
 
@@ -192,4 +212,44 @@ class StaffApiService {
   // chatbot-admin — that's where this route actually lives on the server).
   static Future<void> resolveEscalation(String id, {String note = ''}) =>
       _client.put('/chatbot/resolve/$id', body: {'note': note});
+
+  // clearChatLogs -> DELETE /chatbot-admin/logs: { success, deletedCount }
+  // Permanently clears this clinic's chat logs. The confirmation dialog
+  // lives in the UI (see patient_inquiry_screen.dart) — this call is the
+  // actual destructive action, restricted server-side to facility_admin/
+  // super_admin.
+  static Future<int> clearChatLogs() async {
+    final res = await _client.delete('/chatbot-admin/logs');
+    final body = res is Map<String, dynamic> ? res : <String, dynamic>{};
+    return (body['deletedCount'] as num?)?.toInt() ?? 0;
+  }
+
+  // ── Patient Type Requests (Senior/PWD/Pregnant verification) ───────────────
+  // Patients submit a photo of their ID/certificate from the mobile app;
+  // staff review it here. Not clinic-scoped server-side (patient accounts
+  // aren't tied to one clinic), matching PUT /api/patients/:id which
+  // actually writes patientType.
+  static Future<List<dynamic>> getPatientTypeRequests({String? status}) async {
+    final res = await _client.get('/patient-type-requests', query: {
+      if (status != null) 'status': status,
+    });
+    return (ApiClient.unwrap(res) as List<dynamic>?) ?? const [];
+  }
+
+  static Future<void> approvePatientTypeRequest(String id, {String note = ''}) =>
+      _client.put('/patient-type-requests/$id/approve', body: {'note': note});
+
+  static Future<void> rejectPatientTypeRequest(String id, {String note = ''}) =>
+      _client.put('/patient-type-requests/$id/reject', body: {'note': note});
+
+  // Builds the authenticated photo URL + header for Image.network — the
+  // endpoint requires a valid staff/admin (or owning-patient) token, so
+  // this can't just be a plain public URL.
+  static Uri patientTypeRequestPhotoUri(String id) =>
+      ApiConfig.buildUri('/patient-type-requests/$id/photo');
+
+  static Future<Map<String, String>> photoAuthHeaders() async {
+    final token = await ApiClient.instance.getToken();
+    return {'Authorization': 'Bearer $token'};
+  }
 }

@@ -10,6 +10,24 @@ class QueueProvider extends ChangeNotifier {
   String? _clinicId;
   final ClinicSocketService _socket = ClinicSocketService();
 
+  // Ids the patient has tapped "Proceeding Now!" for — purely informational
+  // (see markOnTheWay on the server: it never changes queue status), used
+  // to show an "On the way" tag next to the entry until it moves past
+  // `called`. Cleared automatically once loadEntries() sees that.
+  final Set<String> _onTheWayIds = {};
+  bool isOnTheWay(String entryId) => _onTheWayIds.contains(entryId);
+
+  // One-shot signal for the app-wide floating alert (see main.dart) —
+  // set the instant a patient taps "Proceeding Now!", cleared by the UI
+  // once shown. Distinct from the escalation alert in InquiryProvider but
+  // follows the same pattern.
+  QueueModel? _pendingOnTheWayAlert;
+  QueueModel? get pendingOnTheWayAlert => _pendingOnTheWayAlert;
+  void dismissOnTheWayAlert() {
+    _pendingOnTheWayAlert = null;
+    notifyListeners();
+  }
+
   List<QueueModel> get entries   => _entries;
   bool             get isLoading => _loading;
   String?          get error     => _error;
@@ -37,8 +55,23 @@ class QueueProvider extends ChangeNotifier {
       // Live sync: server emits `queue_updated` to this clinic's room
       // whenever any staff member mutates the queue (see server.js /
       // queueController). Re-fetch so all tablets stay in sync.
-      _socket.connect(id, onQueueUpdated: (_) => loadEntries());
+      _socket.connect(
+        id,
+        onQueueUpdated: (_) => loadEntries(),
+        namedListeners: {
+          'patient_on_the_way': _onPatientOnTheWay,
+        },
+      );
     }
+  }
+
+  void _onPatientOnTheWay(dynamic data) {
+    final entryId = (data is Map ? data['entryId'] : null)?.toString();
+    if (entryId == null || entryId.isEmpty) return;
+    _onTheWayIds.add(entryId);
+    final entry = _entries.where((e) => e.id == entryId).firstOrNull;
+    if (entry != null) _pendingOnTheWayAlert = entry;
+    notifyListeners();
   }
 
   @override
@@ -56,6 +89,11 @@ class QueueProvider extends ChangeNotifier {
           .map((e) => QueueModel.fromJson(e as Map<String, dynamic>))
           .toList()
         ..sort((a, b) => a.joinedAtRaw.compareTo(b.joinedAtRaw));
+      // The "on the way" tag only makes sense while an entry is still
+      // `called` — clear it once the entry has moved past that (serving,
+      // no_show, requeued, etc.) so it doesn't linger forever.
+      final stillCalled = _entries.where((e) => e.status == 'called').map((e) => e.id).toSet();
+      _onTheWayIds.retainWhere(stillCalled.contains);
     } on StaffApiException catch (e) {
       _error = e.message;
     } catch (_) {
