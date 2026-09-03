@@ -180,77 +180,124 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                           ),
 
                         // ── KPI cards (4 real metrics) ────────────────────
-                        Row(children: [
-                          _kpiCard(
-                              'Patients Today',
-                              '${stats?.totalPatients ?? 0}',
-                              Icons.groups_rounded,
-                              const Color(0xFF3B82F6),
-                              const Color(0xFFEFF6FF)),
-                          const SizedBox(width: 14),
-                          _kpiCard(
-                              'Active Queue',
-                              '${stats?.activeQueue ?? queue.waitingCount + queue.servingCount}',
-                              Icons.access_time_rounded,
-                              const Color(0xFFFF7A1A),
-                              const Color(0xFFFFF4ED)),
-                          const SizedBox(width: 14),
-                          _kpiCard(
-                              "Today's Appointments",
-                              '${stats?.todayAppointments ?? 0}',
-                              Icons.calendar_today_outlined,
-                              const Color(0xFF22C55E),
-                              const Color(0xFFF0FDF4)),
-                          const SizedBox(width: 14),
-                          _kpiCard(
-                              'Completed Today',
-                              '${stats?.completedToday ?? queue.completedCount}',
-                              Icons.task_alt_rounded,
-                              const Color(0xFFA855F7),
-                              const Color(0xFFFAF5FF)),
-                        ]),
+                        // Same reasoning as the metrics row below — 4 fixed
+                        // cards with no fallback got cramped on smaller
+                        // tablets; drops to a 2x2 grid below a width
+                        // threshold instead.
+                        LayoutBuilder(builder: (context, constraints) {
+                          final kpis = [
+                            _kpiCard(
+                                'Patients Today',
+                                '${stats?.totalPatients ?? 0}',
+                                Icons.groups_rounded,
+                                const Color(0xFF3B82F6),
+                                const Color(0xFFEFF6FF)),
+                            _kpiCard(
+                                'Active Queue',
+                                '${stats?.activeQueue ?? queue.waitingCount + queue.servingCount}',
+                                Icons.access_time_rounded,
+                                const Color(0xFFFF7A1A),
+                                const Color(0xFFFFF4ED)),
+                            _kpiCard(
+                                "Today's Appointments",
+                                '${stats?.todayAppointments ?? 0}',
+                                Icons.calendar_today_outlined,
+                                const Color(0xFF22C55E),
+                                const Color(0xFFF0FDF4)),
+                            _kpiCard(
+                                'Completed Today',
+                                '${stats?.completedToday ?? queue.completedCount}',
+                                Icons.task_alt_rounded,
+                                const Color(0xFFA855F7),
+                                const Color(0xFFFAF5FF)),
+                          ];
+
+                          if (constraints.maxWidth >= 760) {
+                            return Row(children: [
+                              for (int i = 0; i < kpis.length; i++) ...[
+                                if (i > 0) const SizedBox(width: 14),
+                                kpis[i],
+                              ],
+                            ]);
+                          }
+
+                          return Column(children: [
+                            Row(children: [kpis[0], const SizedBox(width: 14), kpis[1]]),
+                            const SizedBox(height: 14),
+                            Row(children: [kpis[2], const SizedBox(width: 14), kpis[3]]),
+                          ]);
+                        }),
                         const SizedBox(height: 14),
 
                         // ── Secondary metrics row ─────────────────────────
-                        Row(children: [
-                          _metricCard(
-                              'Avg Wait Time',
-                              stats?.avgWaitTime == 0
-                                  ? '--'
-                                  : '${stats?.avgWaitTime ?? 0} min',
-                              Icons.timer_outlined,
-                              const Color(0xFF0891B2)),
-                          const SizedBox(width: 14),
-                          _metricCard(
-                              'Completion Rate',
-                              stats?.completionRate == 0
-                                  ? '--'
-                                  : '${stats?.completionRate ?? 0}%',
-                              Icons.pie_chart_outline,
-                              const Color(0xFF059669)),
-                          const SizedBox(width: 14),
-                          _metricCard(
-                              'Waiting Now',
-                              '${queue.waitingCount}',
-                              Icons.hourglass_top_rounded,
-                              const Color(0xFFD97706)),
-                          const SizedBox(width: 14),
-                          _metricCard(
-                              'Serving Now',
-                              '${queue.servingCount}',
-                              Icons.medical_services_outlined,
-                              const Color(0xFF7C3AED)),
-                          const SizedBox(width: 14),
-                          // Today's bookings alongside the live queue counts —
-                          // uses the same schedule list already driving the
-                          // "Today's Appointments" panel below, so it updates
-                          // the moment that list refreshes (no separate fetch).
-                          _metricCard(
-                              'Bookings Today',
-                              '${schedule.schedule.length}',
-                              Icons.event_note_outlined,
-                              const Color(0xFF0EA5E9)),
-                        ]),
+                        // 5 fixed cards with no wrap/scroll fallback used to
+                        // get badly squeezed on smaller tablet screens —
+                        // this now drops to two rows (3+2) below a width
+                        // threshold instead of cramming all 5 into one.
+                        LayoutBuilder(builder: (context, constraints) {
+                          final cards = [
+                            _metricCard(
+                                'Avg Wait Time',
+                                stats?.avgWaitTime == 0
+                                    ? '--'
+                                    : '${stats?.avgWaitTime ?? 0} min',
+                                Icons.timer_outlined,
+                                const Color(0xFF0891B2)),
+                            _metricCard(
+                                'Completion Rate',
+                                stats?.completionRate == 0
+                                    ? '--'
+                                    : '${stats?.completionRate ?? 0}%',
+                                Icons.pie_chart_outline,
+                                const Color(0xFF059669)),
+                            _metricCard(
+                                'Waiting Now',
+                                '${queue.waitingCount}',
+                                Icons.hourglass_top_rounded,
+                                const Color(0xFFD97706)),
+                            _metricCard(
+                                'Serving Now',
+                                '${queue.servingCount}',
+                                Icons.medical_services_outlined,
+                                const Color(0xFF7C3AED)),
+                            // Today's bookings alongside the live queue counts —
+                            // uses the same schedule list already driving the
+                            // "Today's Appointments" panel below, so it updates
+                            // the moment that list refreshes (no separate fetch).
+                            _metricCard(
+                                'Bookings Today',
+                                '${schedule.schedule.length}',
+                                Icons.event_note_outlined,
+                                const Color(0xFF0EA5E9)),
+                          ];
+
+                          if (constraints.maxWidth >= 760) {
+                            return Row(children: [
+                              for (int i = 0; i < cards.length; i++) ...[
+                                if (i > 0) const SizedBox(width: 14),
+                                cards[i],
+                              ],
+                            ]);
+                          }
+
+                          return Column(children: [
+                            Row(children: [
+                              cards[0],
+                              const SizedBox(width: 14),
+                              cards[1],
+                              const SizedBox(width: 14),
+                              cards[2],
+                            ]),
+                            const SizedBox(height: 14),
+                            Row(children: [
+                              cards[3],
+                              const SizedBox(width: 14),
+                              cards[4],
+                              const SizedBox(width: 14),
+                              const Expanded(child: SizedBox()),
+                            ]),
+                          ]);
+                        }),
                         const SizedBox(height: 20),
 
                         // ── Two column panels ─────────────────────────────
@@ -557,6 +604,8 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                 Text(value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.w900,
@@ -589,6 +638,8 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                 Text(value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.w800,
@@ -620,11 +671,15 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         Row(children: [
           Icon(icon, size: 16, color: const Color(0xFF2563EB)),
           const SizedBox(width: 8),
-          Text(title,
-              style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF111827))),
+          Expanded(
+            child: Text(title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF111827))),
+          ),
         ]),
         const SizedBox(height: 14),
         const Divider(height: 1, color: Color(0xFFF3F4F6)),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/theme/app_colors.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/queue_provider.dart';
 import '../../models/queue_model.dart';
@@ -37,6 +38,52 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
   // Toggles between the editable list view and the read-only Live Queue
   // view (migrated in from the old standalone Queue Monitoring screen).
   bool _liveView = false;
+
+  // ── Search bar alignment ────────────────────────────────────────────────
+  // The search field on the filter row is positioned to exactly span from
+  // the Refresh button's left edge to the Add Walk-in button's right edge,
+  // both up in the header row above. Rather than guessing/hardcoding pixel
+  // widths for those buttons (which shift with font/locale/content), their
+  // real on-screen positions are measured after each layout pass and used
+  // to place the search field via a Stack.
+  final GlobalKey _refreshBtnKey = GlobalKey();
+  final GlobalKey _addWalkInBtnKey = GlobalKey();
+  final GlobalKey _filterStackKey = GlobalKey();
+  double? _searchBarLeft;
+  double? _searchBarWidth;
+
+  void _measureSearchBarAlignment() {
+    final refreshBox =
+        _refreshBtnKey.currentContext?.findRenderObject() as RenderBox?;
+    final addWalkInBox =
+        _addWalkInBtnKey.currentContext?.findRenderObject() as RenderBox?;
+    final stackBox =
+        _filterStackKey.currentContext?.findRenderObject() as RenderBox?;
+    if (refreshBox == null ||
+        addWalkInBox == null ||
+        stackBox == null ||
+        !refreshBox.attached ||
+        !addWalkInBox.attached ||
+        !stackBox.attached) {
+      return;
+    }
+
+    final refreshGlobalLeft = refreshBox.localToGlobal(Offset.zero).dx;
+    final addWalkInGlobalRight =
+        addWalkInBox.localToGlobal(Offset(addWalkInBox.size.width, 0)).dx;
+
+    final localLeft = stackBox.globalToLocal(Offset(refreshGlobalLeft, 0)).dx;
+    final width = addWalkInGlobalRight - refreshGlobalLeft;
+
+    if (width <= 0) return;
+
+    if (_searchBarLeft != localLeft || _searchBarWidth != width) {
+      setState(() {
+        _searchBarLeft = localLeft;
+        _searchBarWidth = width;
+      });
+    }
+  }
 
   @override
   void initState() {
@@ -150,7 +197,8 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
                             width: 36,
                             height: 36,
                             decoration: BoxDecoration(
-                                color: const Color(0xFF2563EB).withValues(alpha: 0.1),
+                                color: const Color(0xFF2563EB)
+                                    .withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(9)),
                             child: const Icon(Icons.person_add_outlined,
                                 color: Color(0xFF2563EB), size: 20)),
@@ -181,15 +229,19 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
                             return Container(
                               height: 46,
                               alignment: Alignment.centerLeft,
-                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 12),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF9FAFB),
                                 borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: const Color(0xFFE5E7EB)),
+                                border:
+                                    Border.all(color: const Color(0xFFE5E7EB)),
                               ),
                               child: const SizedBox(
-                                  width: 16, height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2)),
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2)),
                             );
                           }
 
@@ -207,12 +259,14 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
                               decoration: BoxDecoration(
                                 color: const Color(0xFFFFF7ED),
                                 borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: const Color(0xFFFED7AA)),
+                                border:
+                                    Border.all(color: const Color(0xFFFED7AA)),
                               ),
                               child: const Text(
                                 'No services configured for this clinic yet. '
                                 'Ask your Facility Admin to add one under Service Schedule.',
-                                style: TextStyle(fontSize: 12, color: Color(0xFF9A3412)),
+                                style: TextStyle(
+                                    fontSize: 12, color: Color(0xFF9A3412)),
                               ),
                             );
                           }
@@ -223,7 +277,8 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
                             decoration: _ideco('Select a service',
                                 Icons.medical_services_outlined),
                             items: services
-                                .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                                .map((s) =>
+                                    DropdownMenuItem(value: s, child: Text(s)))
                                 .toList(),
                             onChanged: (v) => setS(() => selectedService = v),
                           );
@@ -383,6 +438,8 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
                         children: [
                           const Text(
                             'Queue Management',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 22,
                               fontWeight: FontWeight.w800,
@@ -391,6 +448,8 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
                           ),
                           Text(
                             'Today · ${provider.entries.length} total',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontSize: 13,
                               color: Color(0xFF6B7280),
@@ -424,36 +483,42 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
                     const SizedBox(width: 8),
 
                     // Refresh
-                    IconButton(
-                      onPressed: provider.loadEntries,
-                      icon: const Icon(
-                        Icons.refresh_rounded,
-                        color: Color(0xFF6B7280),
+                    Container(
+                      key: _refreshBtnKey,
+                      child: IconButton(
+                        onPressed: provider.loadEntries,
+                        icon: const Icon(
+                          Icons.refresh_rounded,
+                          color: Color(0xFF6B7280),
+                        ),
+                        tooltip: 'Refresh',
                       ),
-                      tooltip: 'Refresh',
                     ),
 
                     const SizedBox(width: 8),
 
                     // Add Walk-in
-                    ElevatedButton.icon(
-                      onPressed: _addWalkIn,
-                      icon: const Icon(
-                        Icons.add,
-                        size: 16,
-                      ),
-                      label: const Text(
-                        'Add Walk-in',
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2563EB),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
+                    Container(
+                      key: _addWalkInBtnKey,
+                      child: ElevatedButton.icon(
+                        onPressed: _addWalkIn,
+                        icon: const Icon(
+                          Icons.add,
+                          size: 16,
                         ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(9),
+                        label: const Text(
+                          'Add Walk-in',
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF2563EB),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(9),
+                          ),
                         ),
                       ),
                     ),
@@ -466,7 +531,7 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
             ),
           ),
 
-          // ── Filter + badges + search — all on ONE row ──────────────────────
+          // ── Filter dropdown + search — evenly aligned on ONE row ─────────
           // Hidden in Live Queue mode, which shows its own summary row below.
           if (_liveView)
             Container(
@@ -474,13 +539,17 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
               padding: const EdgeInsets.fromLTRB(24, 10, 24, 10),
               child: Row(
                 children: [
-                  _badge('Waiting', provider.waitingCount, const Color(0xFFD97706)),
+                  _badge('Waiting', provider.waitingCount,
+                      const Color(0xFFD97706)),
                   const SizedBox(width: 6),
-                  _badge('Serving', provider.servingCount, const Color(0xFF7C3AED)),
+                  _badge('Serving', provider.servingCount,
+                      const Color(0xFF7C3AED)),
                   const SizedBox(width: 6),
-                  _badge('Done', provider.completedCount, const Color(0xFF16A34A)),
+                  _badge(
+                      'Done', provider.completedCount, const Color(0xFF16A34A)),
                   const SizedBox(width: 6),
-                  _badge('Total', provider.entries.length, const Color(0xFF2563EB)),
+                  _badge('Total', provider.entries.length,
+                      const Color(0xFF2563EB)),
                   const Spacer(),
                   const Text(
                     'Read-only live view · waiting & serving patients',
@@ -490,106 +559,163 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
               ),
             )
           else
-          Container(
-            color: Colors.white,
-            padding: const EdgeInsets.fromLTRB(24, 10, 24, 10),
-            child: Row(
-              children: [
-                // Status filter dropdown — colored to match the selected
-                // category so it's visually clear at a glance. Previously a
-                // separate row of tappable "pills" duplicated this same
-                // dropdown's job (both set _statusFilter); the pills have
-                // been removed and the dropdown itself now carries the
-                // color cue they used to provide.
-                Container(
-                  height: 36,
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  decoration: BoxDecoration(
+            Builder(builder: (context) {
+              // Measured post-frame so the search field can be positioned
+              // exactly under Refresh→Add Walk-in above, however wide those
+              // buttons render.
+              WidgetsBinding.instance
+                  .addPostFrameCallback((_) => _measureSearchBarAlignment());
+
+              final statusDropdown = Container(
+                height: 36,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  // Was raw one-off grays (0xFFF3F4F6 / 0xFFE5E7EB /
+                  // 0xFF374151...) unrelated to the app's actual palette —
+                  // now uses AppColors so this dropdown matches the rest
+                  // of the app instead of looking like a different theme.
+                  color: _statusFilter == 'All'
+                      ? AppColors.background
+                      : _sc(_statusFilter).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(
                     color: _statusFilter == 'All'
-                        ? const Color(0xFFF3F4F6)
-                        : _sc(_statusFilter).withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(9),
-                    border: Border.all(
-                      color: _statusFilter == 'All'
-                          ? const Color(0xFFE5E7EB)
-                          : _sc(_statusFilter).withValues(alpha: 0.4),
-                      width: _statusFilter == 'All' ? 1 : 1.3,
-                    ),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: _statusFilter,
-                      isDense: true,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: _statusFilter == 'All'
-                            ? const Color(0xFF374151)
-                            : _sc(_statusFilter),
-                      ),
-                      icon: Icon(
-                        Icons.expand_more,
-                        size: 16,
-                        color: _statusFilter == 'All'
-                            ? const Color(0xFF6B7280)
-                            : _sc(_statusFilter),
-                      ),
-                      items: _kStatuses.map((s) {
-                        return DropdownMenuItem(
-                          value: s,
-                          child: Text(
-                            s == 'All' ? 'All Status' : _sl(s),
-                          ),
-                        );
-                      }).toList(),
-                      onChanged: (v) {
-                        setState(() {
-                          _statusFilter = v ?? 'All';
-                        });
-                      },
-                    ),
+                        ? AppColors.border
+                        : _sc(_statusFilter).withValues(alpha: 0.5),
+                    width: _statusFilter == 'All' ? 1 : 1.3,
                   ),
                 ),
-
-                const SizedBox(width: 10),
-
-                // Search
-                SizedBox(
-                  width: 180,
-                  height: 36,
-                  child: TextField(
-                    controller: _searchCtrl,
-                    onChanged: (_) => setState(() {}),
-                    style: const TextStyle(
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _statusFilter,
+                    isDense: true,
+                    // Explicit white + dark text rather than relying on
+                    // whatever the ambient theme happens to default the
+                    // popup to — that's what made this unreadable/
+                    // inconsistent in some renders (menu items had no
+                    // style at all, so text colors were essentially
+                    // improvised by Flutter, not chosen by the app).
+                    dropdownColor: Colors.white,
+                    style: TextStyle(
                       fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: _statusFilter == 'All'
+                          ? AppColors.textPrimary
+                          : _sc(_statusFilter),
                     ),
-                    decoration: InputDecoration(
-                      hintText: 'Search…',
-                      hintStyle: const TextStyle(
-                        fontSize: 12,
-                      ),
-                      prefixIcon: const Icon(
-                        Icons.search,
-                        size: 15,
-                        color: Color(0xFF9CA3AF),
-                      ),
-                      filled: true,
-                      fillColor: const Color(0xFFF3F4F6),
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 0,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(9),
-                        borderSide: BorderSide.none,
-                      ),
+                    icon: Icon(
+                      Icons.expand_more,
+                      size: 16,
+                      color: _statusFilter == 'All'
+                          ? AppColors.textSecondary
+                          : _sc(_statusFilter),
                     ),
+                    items: _kStatuses.map((s) {
+                      final itemColor = s == 'All' ? AppColors.textPrimary : _sc(s);
+                      return DropdownMenuItem(
+                        value: s,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (s != 'All') ...[
+                              Container(
+                                width: 8,
+                                height: 8,
+                                margin: const EdgeInsets.only(right: 8),
+                                decoration: BoxDecoration(
+                                  color: itemColor,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ],
+                            Text(
+                              s == 'All' ? 'All Status' : _sl(s),
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: itemColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (v) {
+                      setState(() {
+                        _statusFilter = v ?? 'All';
+                      });
+                    },
                   ),
                 ),
-              ],
-            ),
-          ),
+              );
+
+              final searchField = TextField(
+                controller: _searchCtrl,
+                onChanged: (_) => setState(() {}),
+                style: const TextStyle(
+                  fontSize: 12,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'Search…',
+                  hintStyle: const TextStyle(
+                    fontSize: 12,
+                  ),
+                  prefixIcon: const Icon(
+                    Icons.search,
+                    size: 15,
+                    color: Color(0xFF9CA3AF),
+                  ),
+                  filled: true,
+                  fillColor: const Color(0xFFF3F4F6),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 0,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(9),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              );
+
+              return Container(
+                color: Colors.white,
+                padding: const EdgeInsets.fromLTRB(24, 10, 24, 10),
+                child: SizedBox(
+                  height: 36,
+                  width: double.infinity,
+                  child: Stack(
+                    key: _filterStackKey,
+                    clipBehavior: Clip.none,
+                    children: [
+                      // Status filter dropdown — colored to match the
+                      // selected category so it's visually clear at a
+                      // glance. Previously a separate row of tappable
+                      // "pills" duplicated this same dropdown's job (both
+                      // set _statusFilter); the pills have been removed and
+                      // the dropdown itself now carries the color cue they
+                      // used to provide.
+                      Positioned(
+                        left: 0,
+                        top: 0,
+                        child: statusDropdown,
+                      ),
+                      // Search — spans exactly from the Refresh button's
+                      // left edge to the Add Walk-in button's right edge,
+                      // both up in the header row.
+                      Positioned(
+                        left: _searchBarLeft ?? 0,
+                        top: 0,
+                        width: _searchBarWidth ?? 220,
+                        height: 36,
+                        child: searchField,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
 
           const Divider(height: 1),
 
@@ -610,7 +736,8 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
                                 itemCount: shown.length,
                                 separatorBuilder: (_, __) =>
                                     const SizedBox(height: 8),
-                                itemBuilder: (_, i) => _card(shown[i], provider),
+                                itemBuilder: (_, i) =>
+                                    _card(shown[i], provider),
                               ),
           ),
         ])),
@@ -775,7 +902,8 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
           itemBuilder: (_) => nextOptions
               .map((s) => PopupMenuItem<String>(value: s, child: Text(_sl(s))))
               .toList(),
-          child: const Icon(Icons.more_vert, color: Color(0xFF6B7280), size: 20),
+          child:
+              const Icon(Icons.more_vert, color: Color(0xFF6B7280), size: 20),
         ),
       ],
     ]);
@@ -817,8 +945,8 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         Text('$count',
-            style: TextStyle(
-                fontSize: 13, fontWeight: FontWeight.w800, color: c)),
+            style:
+                TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: c)),
         const SizedBox(width: 4),
         Text(label,
             style: TextStyle(
@@ -853,7 +981,8 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
   Widget _tag(String t, Color c) => Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-          color: c.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(99)),
+          color: c.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(99)),
       child: Text(t,
           style:
               TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: c)));
@@ -892,9 +1021,13 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: q.status == 'serving'
-            ? Border.all(color: const Color(0xFF7C3AED).withValues(alpha: 0.4), width: 1.5)
+            ? Border.all(
+                color: const Color(0xFF7C3AED).withValues(alpha: 0.4),
+                width: 1.5)
             : null,
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 6)],
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 6)
+        ],
       ),
       child: Row(children: [
         Container(
@@ -907,26 +1040,36 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
           child: Center(
             child: Text(q.queueNumber,
                 style: TextStyle(
-                    fontSize: 14, fontWeight: FontWeight.w900, color: _sc(q.status))),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    color: _sc(q.status))),
           ),
         ),
         const SizedBox(width: 14),
         Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(q.patientName,
                 style: const TextStyle(
-                    fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF111827))),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF111827))),
             const SizedBox(height: 2),
-            Text(q.serviceName, style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+            Text(q.serviceName,
+                style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
             const SizedBox(height: 2),
             Row(children: [
-              const Icon(Icons.access_time_outlined, size: 11, color: Color(0xFF9CA3AF)),
+              const Icon(Icons.access_time_outlined,
+                  size: 11, color: Color(0xFF9CA3AF)),
               const SizedBox(width: 3),
-              Text('Joined ${q.joinedAt}', style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
+              Text('Joined ${q.joinedAt}',
+                  style:
+                      const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
               if (q.estimatedWaitMinutes > 0) ...[
                 const SizedBox(width: 8),
                 Text('${q.estimatedWaitMinutes} min wait',
-                    style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280))),
+                    style: const TextStyle(
+                        fontSize: 11, color: Color(0xFF6B7280))),
               ],
             ]),
           ]),
@@ -947,7 +1090,11 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
           color: active ? Colors.white : Colors.transparent,
           borderRadius: BorderRadius.circular(7),
           boxShadow: active
-              ? [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 3)]
+              ? [
+                  BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.06),
+                      blurRadius: 3)
+                ]
               : null,
         ),
         child: Text(

@@ -276,6 +276,8 @@ class _WaitingTimeUpdateScreenState extends State<WaitingTimeUpdateScreen> {
                                 children: [
                                   const Text(
                                     'Waiting Time Update',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                       fontSize: 22,
                                       fontWeight: FontWeight.w800,
@@ -284,6 +286,8 @@ class _WaitingTimeUpdateScreenState extends State<WaitingTimeUpdateScreen> {
                                   ),
                                   Text(
                                     clinicName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
                                       fontSize: 13,
                                       color: Color(0xFF6B7280),
@@ -438,27 +442,23 @@ class _WaitingTimeUpdateScreenState extends State<WaitingTimeUpdateScreen> {
 
                                   const SizedBox(height: 12),
 
-                                  // ==================================================
-                                  // DURATION CARD
-                                  // ==================================================
+// ==================================================
+// DURATION CARD
+// ==================================================
                                   Container(
                                     padding: const EdgeInsets.all(22),
                                     decoration: BoxDecoration(
-                                      color: Colors.white,
+                                      // Changed from white + blue border to neutral gray
+                                      color: const Color(0xFFF9FAFB),
                                       borderRadius: BorderRadius.circular(16),
-                                      // Waiting-time update section border —
-                                      // previously had no border at all
-                                      // (shadow-only), so it didn't read as
-                                      // a distinct editable section the way
-                                      // the AI suggestion card below it
-                                      // does. Design/layout unchanged.
                                       border: Border.all(
-                                        color: const Color(0xFF93C5FD),
+                                        color: const Color(0xFFE5E7EB),
                                         width: 1.5,
                                       ),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: Colors.black.withValues(alpha: 0.05),
+                                          color: Colors.black
+                                              .withValues(alpha: 0.04),
                                           blurRadius: 8,
                                         ),
                                       ],
@@ -677,7 +677,8 @@ class _WaitingTimeUpdateScreenState extends State<WaitingTimeUpdateScreen> {
                                       ),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: Colors.black.withValues(alpha: 0.04),
+                                          color: Colors.black
+                                              .withValues(alpha: 0.04),
                                           blurRadius: 6,
                                         ),
                                       ],

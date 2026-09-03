@@ -82,10 +82,14 @@ class _ServiceScheduleScreenState extends State<ServiceScheduleScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text('Service Schedule',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                                 fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xFF111827))),
                         Text(
                           _clinicName.isNotEmpty ? _clinicName : 'Services offered by this clinic',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
                         ),
                       ],

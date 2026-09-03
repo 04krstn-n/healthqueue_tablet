@@ -9,6 +9,13 @@ class ScheduleProvider extends ChangeNotifier {
   // today-only, so the multi-day view used by Appointment Management lives
   // in its own list instead of repurposing `_schedule`.
   List<ScheduleModel> _upcoming = [];
+  // Separate again from `_upcoming` — the List View's "today + next 3
+  // days" window is intentionally tight for quick triage, but an actual
+  // calendar grid needs a full month's worth of appointments to be useful
+  // (otherwise most of the grid would just be empty days). Loaded lazily,
+  // only when Calendar View is actually opened.
+  List<ScheduleModel> _monthSchedule = [];
+  bool    _monthLoading = false;
   bool    _loading  = false;
   bool    _upcomingLoading = false;
   String? _error;
@@ -16,8 +23,10 @@ class ScheduleProvider extends ChangeNotifier {
 
   List<ScheduleModel> get schedule  => _schedule;
   List<ScheduleModel> get upcoming  => _upcoming;
+  List<ScheduleModel> get monthSchedule => _monthSchedule;
   bool                get isLoading => _loading;
   bool                get isUpcomingLoading => _upcomingLoading;
+  bool                get isMonthLoading => _monthLoading;
   String?             get error     => _error;
 
   void setClinicId(String id) {
@@ -69,6 +78,33 @@ class ScheduleProvider extends ChangeNotifier {
     }
   }
 
+  // Loads every appointment in the given month (1st through last day) for
+  // the actual calendar grid — see loadUpcomingSchedule above for why this
+  // is a separate list/window rather than reusing `upcoming`.
+  Future<void> loadMonthSchedule(DateTime month) async {
+    if (_clinicId == null) return;
+    _monthLoading = true; _error = null; notifyListeners();
+    try {
+      final from = DateTime(month.year, month.month, 1);
+      final to = DateTime(month.year, month.month + 1, 0); // last day of month
+      final data = await StaffApiService.getUpcomingAppointments(
+        clinicId: _clinicId!,
+        from: from,
+        to: to,
+      );
+      _monthSchedule = data
+          .map((e) => ScheduleModel.fromJson(e as Map<String, dynamic>))
+          .toList()
+        ..sort((a, b) => a.timeRaw.compareTo(b.timeRaw));
+    } on StaffApiException catch (e) {
+      _error = e.message;
+    } catch (_) {
+      _error = 'Failed to load calendar.';
+    } finally {
+      _monthLoading = false; notifyListeners();
+    }
+  }
+
   Future<void> updateAppointmentStatus(String id, String status) async {
     try {
       await StaffApiService.updateAppointmentStatus(id, status);
@@ -82,6 +118,8 @@ class ScheduleProvider extends ChangeNotifier {
       if (idx >= 0) _schedule[idx] = withStatus(_schedule[idx]);
       final uIdx = _upcoming.indexWhere((s) => s.id == id);
       if (uIdx >= 0) _upcoming[uIdx] = withStatus(_upcoming[uIdx]);
+      final mIdx = _monthSchedule.indexWhere((s) => s.id == id);
+      if (mIdx >= 0) _monthSchedule[mIdx] = withStatus(_monthSchedule[mIdx]);
       notifyListeners();
     } on StaffApiException catch (e) {
       _error = e.message; notifyListeners();

@@ -25,7 +25,11 @@ class _AppointmentManagementScreenState extends State<AppointmentManagementScree
   // _calendarBody. Both read from the same ScheduleProvider.upcoming data;
   // this only changes how it's presented.
   bool _calendarView = false;
-  String? _selectedDayKey;
+  // Real month-grid calendar state — defaults to the current month/day so
+  // the calendar opens already showing "today".
+  DateTime _calendarMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  DateTime _selectedCalendarDay = DateTime.now();
+  bool _calendarMonthLoadedOnce = false;
   final _statuses = [
     'All',
     'pending',
@@ -152,11 +156,15 @@ class _AppointmentManagementScreenState extends State<AppointmentManagementScree
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text('Appointment Management',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                   fontSize: 22,
                                   fontWeight: FontWeight.w800,
                                   color: Color(0xFF111827))),
                           Text('Booked appointments — today + next 3 days',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
                         ],
                       ),
@@ -189,7 +197,13 @@ class _AppointmentManagementScreenState extends State<AppointmentManagementScree
                         _viewToggleBtn(Icons.view_agenda_rounded, 'List', !_calendarView,
                             () => setState(() => _calendarView = false)),
                         _viewToggleBtn(Icons.calendar_month_rounded, 'Calendar', _calendarView,
-                            () => setState(() => _calendarView = true)),
+                            () {
+                              setState(() => _calendarView = true);
+                              if (!_calendarMonthLoadedOnce) {
+                                _calendarMonthLoadedOnce = true;
+                                context.read<ScheduleProvider>().loadMonthSchedule(_calendarMonth);
+                              }
+                            }),
                       ]),
                     ),
                     const SizedBox(width: 10),
@@ -241,20 +255,23 @@ class _AppointmentManagementScreenState extends State<AppointmentManagementScree
               ]),
             ),
 
-            // Content
+            // Content — Calendar View branches off first since it reads
+            // an entirely different data source/loading state
+            // (provider.monthSchedule / isMonthLoading) than List View
+            // (shown / isUpcomingLoading).
             Expanded(
-              child: provider.isUpcomingLoading
-                  ? const Center(child: CircularProgressIndicator(color: Color(0xFF2563EB)))
-                  : provider.error != null
-                      ? _errorState(provider.error!)
-                      : shown.isEmpty
-                          ? _emptyState()
-                          : (_calendarView
-                              ? _calendarBody(shown)
+              child: _calendarView
+                  ? _calendarBody(provider)
+                  : provider.isUpcomingLoading
+                      ? const Center(child: CircularProgressIndicator(color: Color(0xFF2563EB)))
+                      : provider.error != null
+                          ? _errorState(provider.error!)
+                          : shown.isEmpty
+                              ? _emptyState()
                               : ListView(
                                   padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
                                   children: _buildDayGroupedList(shown),
-                                )),
+                                ),
             ),
           ]),
         ),
@@ -291,73 +308,152 @@ class _AppointmentManagementScreenState extends State<AppointmentManagementScree
   /// appointment count) that filters the same list below to just the
   /// selected day. Keeps the underlying data and per-appointment actions
   /// identical to List View; only the browsing structure differs.
-  Widget _calendarBody(List<ScheduleModel> shown) {
-    // Group by day key while preserving chronological order.
-    final byDay = <String, List<ScheduleModel>>{};
-    for (final s in shown) {
-      byDay.putIfAbsent(_dayKey(s.timeRaw), () => []).add(s);
+  /// Real month-grid calendar (Sun–Sat columns, day cells with an
+  /// appointment-count dot) — previously "Calendar View" was actually just
+  /// a horizontal strip of day chips, which doesn't read as a calendar at
+  /// all. Tapping a day shows that day's appointments below, reusing the
+  /// same _apptCard used everywhere else.
+  Widget _calendarBody(ScheduleProvider provider) {
+    if (provider.isMonthLoading && provider.monthSchedule.isEmpty) {
+      return const Center(child: CircularProgressIndicator(color: Color(0xFF2563EB)));
     }
-    final dayKeys = byDay.keys.toList();
-    final activeKey = (_selectedDayKey != null && byDay.containsKey(_selectedDayKey))
-        ? _selectedDayKey!
-        : dayKeys.first;
-    final dayItems = byDay[activeKey] ?? const [];
+    if (provider.error != null && provider.monthSchedule.isEmpty) {
+      return _errorState(provider.error!);
+    }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          height: 76,
-          child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-            scrollDirection: Axis.horizontal,
-            itemCount: dayKeys.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 10),
-            itemBuilder: (_, i) {
-              final key = dayKeys[i];
-              final dayList = byDay[key]!;
-              final active = key == activeKey;
-              return GestureDetector(
-                onTap: () => setState(() => _selectedDayKey = key),
-                child: Container(
-                  width: 88,
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  decoration: BoxDecoration(
-                    color: active ? const Color(0xFF2563EB) : Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: active ? const Color(0xFF2563EB) : const Color(0xFFE5E7EB),
+    final byDay = <int, List<ScheduleModel>>{};
+    for (final s in provider.monthSchedule) {
+      final dt = DateTime.tryParse(s.timeRaw)?.toUtc().add(const Duration(hours: 8));
+      if (dt == null || dt.year != _calendarMonth.year || dt.month != _calendarMonth.month) continue;
+      byDay.putIfAbsent(dt.day, () => []).add(s);
+    }
+
+    final now = DateTime.now();
+    final isCurrentMonth = _calendarMonth.year == now.year && _calendarMonth.month == now.month;
+    final daysInMonth = DateTime(_calendarMonth.year, _calendarMonth.month + 1, 0).day;
+    final firstWeekday = DateTime(_calendarMonth.year, _calendarMonth.month, 1).weekday % 7; // 0=Sun..6=Sat
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
+    ];
+
+    final selectedDayItems = (_selectedCalendarDay.year == _calendarMonth.year &&
+            _selectedCalendarDay.month == _calendarMonth.month)
+        ? (byDay[_selectedCalendarDay.day] ?? const <ScheduleModel>[])
+        : const <ScheduleModel>[];
+
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 4),
+        child: Row(children: [
+          Text('${monthNames[_calendarMonth.month - 1]} ${_calendarMonth.year}',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF111827))),
+          const Spacer(),
+          IconButton(
+            icon: const Icon(Icons.chevron_left_rounded, color: Color(0xFF6B7280)),
+            onPressed: () => _changeCalendarMonth(-1),
+            tooltip: 'Previous month',
+          ),
+          IconButton(
+            icon: const Icon(Icons.chevron_right_rounded, color: Color(0xFF6B7280)),
+            onPressed: () => _changeCalendarMonth(1),
+            tooltip: 'Next month',
+          ),
+        ]),
+      ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Row(
+          children: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+              .map((d) => Expanded(
+                    child: Center(
+                      child: Text(d,
+                          style: const TextStyle(
+                              fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF9CA3AF))),
                     ),
-                  ),
-                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    Text(_dayLabel(dayList.first.timeRaw),
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w800,
-                            color: active ? Colors.white : const Color(0xFF111827))),
-                    const SizedBox(height: 6),
-                    Text('${dayList.length} appt${dayList.length == 1 ? '' : 's'}',
-                        style: TextStyle(
-                            fontSize: 11,
-                            color: active ? Colors.white70 : const Color(0xFF9CA3AF))),
-                  ]),
+                  ))
+              .toList(),
+        ),
+      ),
+      const SizedBox(height: 4),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 7),
+          itemCount: firstWeekday + daysInMonth,
+          itemBuilder: (_, i) {
+            if (i < firstWeekday) return const SizedBox.shrink();
+            final day = i - firstWeekday + 1;
+            final date = DateTime(_calendarMonth.year, _calendarMonth.month, day);
+            final isToday = isCurrentMonth && day == now.day;
+            final isSelected = _selectedCalendarDay.year == date.year &&
+                _selectedCalendarDay.month == date.month &&
+                _selectedCalendarDay.day == date.day;
+            final count = byDay[day]?.length ?? 0;
+            return GestureDetector(
+              onTap: () => setState(() => _selectedCalendarDay = date),
+              child: Container(
+                margin: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? const Color(0xFF2563EB)
+                      : (isToday ? const Color(0xFFEFF6FF) : Colors.transparent),
+                  borderRadius: BorderRadius.circular(8),
+                  border: isToday && !isSelected
+                      ? Border.all(color: const Color(0xFF2563EB))
+                      : null,
                 ),
-              );
-            },
-          ),
+                child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Text('$day',
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: isSelected ? Colors.white : const Color(0xFF111827))),
+                  if (count > 0) ...[
+                    const SizedBox(height: 2),
+                    Container(
+                      width: 5,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: isSelected ? Colors.white : const Color(0xFF2563EB),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ],
+                ]),
+              ),
+            );
+          },
         ),
-        const Divider(height: 1),
-        Expanded(
-          child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-            itemCount: dayItems.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (_, i) => _apptCard(dayItems[i]),
-          ),
-        ),
-      ],
-    );
+      ),
+      const SizedBox(height: 8),
+      const Divider(height: 1),
+      Expanded(
+        child: selectedDayItems.isEmpty
+            ? Center(
+                child: Text(
+                  'No appointments on '
+                  '${_selectedCalendarDay.month}/${_selectedCalendarDay.day}/${_selectedCalendarDay.year}',
+                  style: const TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
+                ),
+              )
+            : ListView.separated(
+                padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                itemCount: selectedDayItems.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (_, i) => _apptCard(selectedDayItems[i]),
+              ),
+      ),
+    ]);
+  }
+
+  void _changeCalendarMonth(int delta) {
+    setState(() {
+      _calendarMonth = DateTime(_calendarMonth.year, _calendarMonth.month + delta);
+    });
+    context.read<ScheduleProvider>().loadMonthSchedule(_calendarMonth);
   }
 
   /// Inserts a "Today" / "Tomorrow" / "Wed, Aug 28" header wherever the day
@@ -432,23 +528,46 @@ class _AppointmentManagementScreenState extends State<AppointmentManagementScree
           ),
         ),
         const SizedBox(width: 8),
-        PopupMenuButton<String>(
-          onSelected: (val) =>
-              context.read<ScheduleProvider>().updateAppointmentStatus(s.id, val),
-          itemBuilder: (_) => [
-            'confirmed',
-            'arrived',
-            'serving',
-            'completed',
-            'cancelled',
-            'no_show',
-          ]
-              .map((st) => PopupMenuItem(value: st, child: Text(_statusLabel(st))))
-              .toList(),
-          child: const Icon(Icons.more_vert, color: Color(0xFF6B7280)),
-        ),
+        // Only offer transitions the server will actually accept (see the
+        // matching guard in appointmentController.updateStatus — a
+        // cancelled appointment can't be modified at all, and the other
+        // terminal states shouldn't offer to "change" into something
+        // else either). Previously this always listed all 6 statuses
+        // regardless of the appointment's current one, so tapping an
+        // option on an already-cancelled/completed/no-show appointment
+        // would just get silently rejected server-side — removed
+        // entirely (not just hidden-but-tappable) for those, since
+        // there's nothing valid left to pick.
+        if (_validNextStatuses(s.status).isNotEmpty)
+          PopupMenuButton<String>(
+            onSelected: (val) =>
+                context.read<ScheduleProvider>().updateAppointmentStatus(s.id, val),
+            itemBuilder: (_) => _validNextStatuses(s.status)
+                .map((st) => PopupMenuItem(value: st, child: Text(_statusLabel(st))))
+                .toList(),
+            child: const Icon(Icons.more_vert, color: Color(0xFF6B7280)),
+          ),
       ]),
     );
+  }
+
+  // waiting/called/serving on the queue side has an explicit, enforced
+  // lifecycle (see queue_management_screen.dart's _validNextStatuses) —
+  // this mirrors that same idea for appointments, matched to what
+  // appointmentController.updateStatus actually allows.
+  List<String> _validNextStatuses(String current) {
+    switch (current) {
+      case 'pending':
+        return ['confirmed', 'cancelled'];
+      case 'confirmed':
+        return ['arrived', 'cancelled', 'no_show'];
+      case 'arrived':
+        return ['serving', 'cancelled', 'no_show'];
+      case 'serving':
+        return ['completed'];
+      default:
+        return const []; // completed/cancelled/no_show are terminal
+    }
   }
 
   Widget _emptyState() => const Center(
