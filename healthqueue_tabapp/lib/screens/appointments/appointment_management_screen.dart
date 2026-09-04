@@ -378,75 +378,247 @@ class _AppointmentManagementScreenState extends State<AppointmentManagementScree
       const SizedBox(height: 4),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 7),
-          itemCount: firstWeekday + daysInMonth,
-          itemBuilder: (_, i) {
-            if (i < firstWeekday) return const SizedBox.shrink();
-            final day = i - firstWeekday + 1;
-            final date = DateTime(_calendarMonth.year, _calendarMonth.month, day);
-            final isToday = isCurrentMonth && day == now.day;
-            final isSelected = _selectedCalendarDay.year == date.year &&
-                _selectedCalendarDay.month == date.month &&
-                _selectedCalendarDay.day == date.day;
-            final count = byDay[day]?.length ?? 0;
-            return GestureDetector(
-              onTap: () => setState(() => _selectedCalendarDay = date),
-              child: Container(
-                margin: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? const Color(0xFF2563EB)
-                      : (isToday ? const Color(0xFFEFF6FF) : Colors.transparent),
-                  borderRadius: BorderRadius.circular(8),
-                  border: isToday && !isSelected
-                      ? Border.all(color: const Color(0xFF2563EB))
-                      : null,
-                ),
-                child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  Text('$day',
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: isSelected ? Colors.white : const Color(0xFF111827))),
-                  if (count > 0) ...[
-                    const SizedBox(height: 2),
-                    Container(
-                      width: 5,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: isSelected ? Colors.white : const Color(0xFF2563EB),
-                        shape: BoxShape.circle,
+        // Was a plain SliverGridDelegateWithFixedCrossAxisCount with no
+        // childAspectRatio — that defaults to *square* cells sized off
+        // the column width, so on a wide tablet each of the up to 6 rows
+        // ends up as tall as it is wide (~100px+), and 6 of those rows
+        // easily exceeds the vertical space actually available in this
+        // Column, cutting off the later weeks. LayoutBuilder measures the
+        // real available width and sets a fixed, short cell height
+        // instead, so the grid's total height stays predictable
+        // (6 rows × ~40px) regardless of how wide the tablet screen is.
+        child: LayoutBuilder(builder: (context, constraints) {
+          const spacing = 6.0;
+          const cellHeight = 40.0;
+          final cellWidth = (constraints.maxWidth - spacing * 6) / 7;
+          final aspectRatio = cellWidth / cellHeight;
+
+          return GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7,
+              mainAxisSpacing: spacing,
+              crossAxisSpacing: spacing,
+              childAspectRatio: aspectRatio,
+            ),
+            itemCount: firstWeekday + daysInMonth,
+            itemBuilder: (_, i) {
+              if (i < firstWeekday) return const SizedBox.shrink();
+              final day = i - firstWeekday + 1;
+              final date = DateTime(_calendarMonth.year, _calendarMonth.month, day);
+              final isToday = isCurrentMonth && day == now.day;
+              final isSelected = _selectedCalendarDay.year == date.year &&
+                  _selectedCalendarDay.month == date.month &&
+                  _selectedCalendarDay.day == date.day;
+              final dayItems = byDay[day] ?? const <ScheduleModel>[];
+              return GestureDetector(
+                onTap: () {
+                  setState(() => _selectedCalendarDay = date);
+                  if (dayItems.isNotEmpty) _showDaySummaryModal(date, dayItems);
+                },
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? const Color(0xFF2563EB)
+                        : (isToday ? const Color(0xFFEFF6FF) : Colors.transparent),
+                    borderRadius: BorderRadius.circular(8),
+                    border: isToday && !isSelected
+                        ? Border.all(color: const Color(0xFF2563EB))
+                        : null,
+                  ),
+                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    Text('$day',
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: isSelected ? Colors.white : const Color(0xFF111827))),
+                    if (dayItems.isNotEmpty) ...[
+                      const SizedBox(height: 1),
+                      Container(
+                        width: 4,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: isSelected ? Colors.white : const Color(0xFF2563EB),
+                          shape: BoxShape.circle,
+                        ),
                       ),
-                    ),
-                  ],
-                ]),
-              ),
-            );
-          },
-        ),
+                    ],
+                  ]),
+                ),
+              );
+            },
+          );
+        }),
       ),
       const SizedBox(height: 8),
-      const Divider(height: 1),
-      Expanded(
-        child: selectedDayItems.isEmpty
-            ? Center(
-                child: Text(
-                  'No appointments on '
-                  '${_selectedCalendarDay.month}/${_selectedCalendarDay.day}/${_selectedCalendarDay.year}',
-                  style: const TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
-                ),
-              )
-            : ListView.separated(
-                padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-                itemCount: selectedDayItems.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
-                itemBuilder: (_, i) => _apptCard(selectedDayItems[i]),
-              ),
-      ),
+      // Selected day's appointments now open in a modal (see
+      // _showDaySummaryModal) instead of an inline list here — that list
+      // used to sit in an Expanded below the grid, which was part of what
+      // squeezed the grid's available height in the first place.
+      if (selectedDayItems.isEmpty)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Text(
+            'No appointments on '
+            '${_selectedCalendarDay.month}/${_selectedCalendarDay.day}/${_selectedCalendarDay.year}',
+            style: const TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
+          ),
+        )
+      else
+        Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: TextButton.icon(
+            onPressed: () => _showDaySummaryModal(_selectedCalendarDay, selectedDayItems),
+            icon: const Icon(Icons.event_note_rounded, size: 16),
+            label: Text(
+              '${selectedDayItems.length} appointment${selectedDayItems.length == 1 ? '' : 's'} on '
+              '${_selectedCalendarDay.month}/${_selectedCalendarDay.day} — view',
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ),
     ]);
+  }
+
+  /// Day tap -> summary modal grouped by service (e.g. "4 scheduled for
+  /// X-Ray, 7 for Consultation"). Tapping a service group switches the
+  /// same sheet to that service's patient list (name, time slot, status),
+  /// reusing the existing _apptCard so status actions still work from here.
+  void _showDaySummaryModal(DateTime date, List<ScheduleModel> dayItems) {
+    final byService = <String, List<ScheduleModel>>{};
+    for (final item in dayItems) {
+      final key = item.service.isNotEmpty ? item.service : 'Other';
+      byService.putIfAbsent(key, () => []).add(item);
+    }
+    final serviceNames = byService.keys.toList()..sort();
+    final dateLabel = '${date.month}/${date.day}/${date.year}';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        String? selectedService;
+        return StatefulBuilder(builder: (sheetCtx, setSheetState) {
+          final items = selectedService == null ? null : byService[selectedService];
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
+              ),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(sheetCtx).size.height * 0.75,
+                ),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 10),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE5E7EB),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 14, 12, 10),
+                    child: Row(children: [
+                      if (selectedService != null)
+                        IconButton(
+                          icon: const Icon(Icons.arrow_back_rounded, size: 20),
+                          onPressed: () => setSheetState(() => selectedService = null),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                      if (selectedService != null) const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          selectedService ?? 'Appointments — $dateLabel',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF111827)),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded, size: 20),
+                        onPressed: () => Navigator.pop(sheetCtx),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                    ]),
+                  ),
+                  const Divider(height: 1),
+                  Flexible(
+                    child: items == null
+                        // ── Summary: counts grouped by service ──────────
+                        ? ListView.separated(
+                            shrinkWrap: true,
+                            padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                            itemCount: serviceNames.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 8),
+                            itemBuilder: (_, i) {
+                              final name = serviceNames[i];
+                              final count = byService[name]!.length;
+                              return InkWell(
+                                borderRadius: BorderRadius.circular(12),
+                                onTap: () => setSheetState(() => selectedService = name),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: const Color(0xFFE5E7EB)),
+                                  ),
+                                  child: Row(children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF2563EB).withValues(alpha: 0.1),
+                                        borderRadius: BorderRadius.circular(99),
+                                      ),
+                                      child: Text('$count',
+                                          style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w800,
+                                              color: Color(0xFF2563EB))),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        'scheduled for $name',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                                      ),
+                                    ),
+                                    const Icon(Icons.chevron_right_rounded,
+                                        size: 18, color: Color(0xFF9CA3AF)),
+                                  ]),
+                                ),
+                              );
+                            },
+                          )
+                        // ── Patient list for the selected service ───────
+                        : ListView.separated(
+                            shrinkWrap: true,
+                            padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                            itemCount: items.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 8),
+                            itemBuilder: (_, i) => _apptCard(items[i]),
+                          ),
+                  ),
+                ]),
+              ),
+            ),
+          );
+        });
+      },
+    );
   }
 
   void _changeCalendarMonth(int delta) {

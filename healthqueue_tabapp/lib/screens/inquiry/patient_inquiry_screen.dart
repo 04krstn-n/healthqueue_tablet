@@ -712,19 +712,20 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
       ));
   }
 
+  // Full two-way thread dialog. Loads the whole conversation (not just the
+  // one flagged message) via GET /chatbot-admin/threads/:patientId/messages,
+  // and offers two distinct actions: "Send" (live reply, POST
+  // /chatbot-admin/threads/:patientId/reply — stays open) and "Resolve &
+  // Close" (the original PUT /chatbot/resolve/:id — ends the conversation).
   void _replyDialog(InquiryModel inq, InquiryProvider provider) {
     final replyCtrl = TextEditingController();
+    provider.loadThread(inq.patientId);
+
     showDialog(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        title: Text('Reply to ${inq.patientName}',
+        title: Text('Conversation with ${inq.patientName}',
             style: const TextStyle(fontWeight: FontWeight.w800)),
-        // The dialog's own vertical space shrinks once the on-screen
-        // keyboard opens (autofocus below triggers it immediately), and a
-        // fixed-size Column doesn't shrink with it — that's what caused
-        // the earlier "bottom overflowed" error. Capping content height to
-        // the available screen height and making it scrollable means it
-        // resizes/scrolls instead of overflowing, on any screen size.
         content: ConstrainedBox(
           constraints: BoxConstraints(
             maxWidth: 420,
@@ -732,55 +733,112 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
           ),
           child: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-            // Full conversation thread so staff have context before replying
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 220),
-              child: SingleChildScrollView(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  _bubble(inq.message, const Color(0xFFF3F4F6),
-                      Icons.person_outline, const Color(0xFF6B7280)),
-                  if (inq.reply.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    _bubble(inq.reply, const Color(0xFFEFF6FF),
-                        Icons.smart_toy_outlined, const Color(0xFF2563EB)),
-                  ],
-                  if (inq.escalationNote.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    _bubble('Concern: ${inq.escalationNote}',
-                        const Color(0xFFFFF7ED), Icons.warning_amber_outlined,
-                        const Color(0xFFF97316)),
-                  ],
-                ]),
+              if (inq.escalationNote.isNotEmpty) ...[
+                _bubble('Concern: ${inq.escalationNote}',
+                    const Color(0xFFFFF7ED), Icons.warning_amber_outlined,
+                    const Color(0xFFF97316)),
+                const SizedBox(height: 6),
+              ],
+              // Full thread — rebuilds live as new messages arrive (see
+              // InquiryProvider.loadThread / the chat_thread_message
+              // socket handler in loadInquiries).
+              Consumer<InquiryProvider>(
+                builder: (_, p, __) {
+                  if (p.threadLoading && p.thread.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 20),
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  }
+                  final items = p.thread.isNotEmpty
+                      ? p.thread
+                      : [
+                          ThreadMessageModel(
+                            id: inq.id,
+                            patientText: inq.message,
+                            replyText: inq.reply,
+                            fromStaff: false,
+                            createdAt: inq.createdAt,
+                          ),
+                        ];
+                  return ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 260),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          for (final m in items) ...[
+                            if (m.patientText.isNotEmpty)
+                              _bubble(m.patientText, const Color(0xFFF3F4F6),
+                                  Icons.person_outline, const Color(0xFF6B7280)),
+                            if (m.patientText.isNotEmpty && m.replyText.isNotEmpty)
+                              const SizedBox(height: 6),
+                            if (m.replyText.isNotEmpty)
+                              _bubble(
+                                m.replyText,
+                                m.fromStaff
+                                    ? const Color(0xFFF0FDF4)
+                                    : const Color(0xFFEFF6FF),
+                                m.fromStaff
+                                    ? Icons.support_agent
+                                    : Icons.smart_toy_outlined,
+                                m.fromStaff
+                                    ? const Color(0xFF16A34A)
+                                    : const Color(0xFF2563EB),
+                              ),
+                            const SizedBox(height: 6),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
+                },
               ),
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: replyCtrl,
-              autofocus: true,
-              maxLines: 4,
-              decoration: const InputDecoration(
-                  labelText: 'Your reply to the patient',
-                  hintText: 'Type your response…',
-                  border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 8),
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Sending this will also mark the conversation as resolved.',
-                style: TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
+              const SizedBox(height: 14),
+              TextField(
+                controller: replyCtrl,
+                autofocus: true,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                    labelText: 'Your reply to the patient',
+                    hintText: 'Type your response…',
+                    border: OutlineInputBorder()),
               ),
-            ),
+              const SizedBox(height: 8),
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '"Send" replies live and keeps the conversation open. '
+                  '"Resolve & Close" ends it.',
+                  style: TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
+                ),
+              ),
             ]),
           ),
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(dialogCtx),
-              child: const Text('Cancel')),
+              onPressed: () {
+                provider.clearThread();
+                Navigator.pop(dialogCtx);
+              },
+              child: const Text('Close')),
+          OutlinedButton.icon(
+              icon: const Icon(Icons.check_circle_outline, size: 15),
+              onPressed: () {
+                provider.resolveEscalation(inq.id, note: replyCtrl.text.trim());
+                provider.clearThread();
+                Navigator.pop(dialogCtx);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Conversation resolved.'),
+                    backgroundColor: Color(0xFF16A34A)));
+              },
+              style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF16A34A)),
+              label: const Text('Resolve & Close')),
           ElevatedButton.icon(
               icon: const Icon(Icons.send_rounded, size: 15),
-              onPressed: () {
+              onPressed: () async {
                 final text = replyCtrl.text.trim();
                 if (text.isEmpty) {
                   ScaffoldMessenger.of(dialogCtx).showSnackBar(const SnackBar(
@@ -788,16 +846,21 @@ class _PatientInquiryScreenState extends State<PatientInquiryScreen> {
                       backgroundColor: Colors.red));
                   return;
                 }
-                provider.resolveEscalation(inq.id, note: text);
-                Navigator.pop(dialogCtx);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text('Reply sent to patient.'),
-                    backgroundColor: Color(0xFF16A34A)));
+                final ok = await provider.sendThreadReply(inq.patientId, text);
+                if (!ok) {
+                  if (dialogCtx.mounted) {
+                    ScaffoldMessenger.of(dialogCtx).showSnackBar(SnackBar(
+                        content: Text(provider.threadError ?? 'Failed to send reply.'),
+                        backgroundColor: Colors.red));
+                  }
+                  return;
+                }
+                replyCtrl.clear();
               },
               style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF2563EB),
                   foregroundColor: Colors.white),
-              label: const Text('Send Reply')),
+              label: const Text('Send')),
         ],
       ),
     );

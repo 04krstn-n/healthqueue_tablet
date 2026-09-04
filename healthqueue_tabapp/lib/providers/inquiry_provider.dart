@@ -39,6 +39,76 @@ class InquiryProvider extends ChangeNotifier {
   int get unresolvedEscalationCount =>
       _escalated.where((i) => !i.resolvedByStaff).length;
 
+  // ── Live thread (open conversation view) ──────────────────────────────
+  // Separate from `_inquiries`/`_escalated` (the inbox lists) — this is
+  // the full back-and-forth for whichever patient's dialog is currently
+  // open. Loaded on demand rather than kept for every patient at once.
+  List<ThreadMessageModel> _thread = [];
+  bool _threadLoading = false;
+  String? _threadError;
+  String? _threadPatientId;
+
+  List<ThreadMessageModel> get thread => _thread;
+  bool get threadLoading => _threadLoading;
+  String? get threadError => _threadError;
+
+  Future<void> loadThread(String patientId) async {
+    _threadPatientId = patientId;
+    _threadLoading = true; _threadError = null; notifyListeners();
+    try {
+      final results = await StaffApiService.getThreadMessages(patientId);
+      // Guard against the dialog having been closed/reopened for a
+      // different patient while this request was in flight.
+      if (_threadPatientId != patientId) return;
+      _thread = results
+          .map((e) => ThreadMessageModel.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } on StaffApiException catch (e) {
+      _threadError = e.message;
+    } catch (_) {
+      _threadError = 'Failed to load conversation.';
+    } finally {
+      _threadLoading = false; notifyListeners();
+    }
+  }
+
+  // Sends a live reply WITHOUT resolving the escalation — the actual
+  // back-and-forth channel (see StaffApiService.replyToThread). Appends
+  // optimistically so the dialog updates instantly rather than waiting on
+  // a full thread refetch.
+  Future<bool> sendThreadReply(String patientId, String text) async {
+    try {
+      await StaffApiService.replyToThread(patientId, text);
+      if (_threadPatientId == patientId) {
+        _thread = [
+          ..._thread,
+          ThreadMessageModel(
+            id: 'local-${DateTime.now().microsecondsSinceEpoch}',
+            patientText: '',
+            replyText: text,
+            fromStaff: true,
+            createdAt: 'now',
+          ),
+        ];
+        notifyListeners();
+      }
+      return true;
+    } on StaffApiException catch (e) {
+      _threadError = e.message; notifyListeners();
+      return false;
+    } catch (_) {
+      _threadError = 'Failed to send reply.'; notifyListeners();
+      return false;
+    }
+  }
+
+  void clearThread() {
+    _thread = [];
+    _threadPatientId = null;
+    _threadError = null;
+    notifyListeners();
+  }
+
   List<InquiryModel> get inquiries {
     if (_query.isEmpty) return _inquiries;
     final q = _query.toLowerCase();
@@ -70,8 +140,17 @@ class InquiryProvider extends ChangeNotifier {
       // escalates, matching how the queue screens already behave.
       _socket.connect(
         clinicId,
-        eventNames: const ['chat_escalated'],
-        onQueueUpdated: (_) => loadInquiries(clinicId: _clinicId),
+        eventNames: const ['chat_escalated', 'chat_thread_message'],
+        onQueueUpdated: (data) {
+          loadInquiries(clinicId: _clinicId);
+          // If the currently-open thread dialog just got a new message
+          // (from either side), refresh it too so staff see it live
+          // instead of only after closing and reopening the dialog.
+          final patientId = (data is Map ? data['patientId'] : null)?.toString();
+          if (patientId != null && patientId == _threadPatientId) {
+            loadThread(patientId);
+          }
+        },
       );
     }
     _loading = true; _error = null; notifyListeners();

@@ -213,6 +213,23 @@ class StaffApiService {
   static Future<void> resolveEscalation(String id, {String note = ''}) =>
       _client.put('/chatbot/resolve/$id', body: {'note': note});
 
+  // getThreadMessages -> GET /chatbot-admin/threads/:patientId/messages
+  // Full back-and-forth for one patient (not just the single flagged
+  // escalation message getEscalatedLogs returns) — used by the reply
+  // dialog so staff have the whole conversation for context.
+  static Future<List<dynamic>> getThreadMessages(String patientId) async {
+    final res = await _client.get('/chatbot-admin/threads/$patientId/messages');
+    return (ApiClient.unwrap(res) as List<dynamic>?) ?? const [];
+  }
+
+  // replyToThread -> POST /chatbot-admin/threads/:patientId/reply
+  // Sends a live reply WITHOUT closing the escalation — pushes to the
+  // patient's app instantly via Socket.io ('staff_chat_reply' on their
+  // `user_<id>` room). Only works while the patient has an active
+  // ChatSession in 'staff' mode (i.e. actually escalated).
+  static Future<void> replyToThread(String patientId, String text) =>
+      _client.post('/chatbot-admin/threads/$patientId/reply', body: {'text': text});
+
   // clearChatLogs -> DELETE /chatbot-admin/logs: { success, deletedCount }
   // Permanently clears this clinic's chat logs. The confirmation dialog
   // lives in the UI (see patient_inquiry_screen.dart) — this call is the

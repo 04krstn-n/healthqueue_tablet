@@ -1,5 +1,6 @@
 class InquiryModel {
   final String id;
+  final String patientId;
   final String message;
   final String reply;
   final String patientName;
@@ -14,6 +15,7 @@ class InquiryModel {
 
   const InquiryModel({
     required this.id,
+    this.patientId        = '',
     required this.message,
     required this.reply,
     required this.patientName,
@@ -33,6 +35,9 @@ class InquiryModel {
     final src      = j['source']?.toString() ?? (fallback ? 'faq' : 'rasa');
     return InquiryModel(
       id:              j['_id']?.toString() ?? '',
+      patientId:       (j['patient'] is Map
+                        ? j['patient']['_id']
+                        : j['patient'])?.toString() ?? '',
       message:         j['message']?.toString() ?? '',
       reply:           j['reply']?.toString() ?? j['response']?.toString() ?? '',
       patientName:     (j['patient'] is Map
@@ -59,3 +64,35 @@ class InquiryModel {
     } catch (_) { return iso; }
   }
 }
+
+/// One entry in a patient's live chat thread (GET
+/// /chatbot-admin/threads/:patientId/messages) — a lighter-weight sibling
+/// of InquiryModel: same underlying ChatLog rows, but read as a flat
+/// timeline rather than one escalation record.
+class ThreadMessageModel {
+  final String   id;
+  final String   patientText;   // ChatLog.message — empty for staff-authored rows
+  final String   replyText;     // ChatLog.reply — bot reply OR staff reply
+  final bool     fromStaff;     // sender == 'staff'
+  final String   createdAt;
+
+  const ThreadMessageModel({
+    required this.id,
+    required this.patientText,
+    required this.replyText,
+    required this.fromStaff,
+    required this.createdAt,
+  });
+
+  factory ThreadMessageModel.fromJson(Map<String, dynamic> j) {
+    return ThreadMessageModel(
+      id:          j['_id']?.toString() ?? '',
+      patientText: j['message']?.toString() ?? '',
+      replyText:   j['reply']?.toString() ?? '',
+      fromStaff:   j['sender']?.toString() == 'staff' ||
+                   j['source']?.toString() == 'staff',
+      createdAt:   InquiryModel._toManilaTime(j['createdAt']?.toString()),
+    );
+  }
+}
+
